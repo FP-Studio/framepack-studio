@@ -2,6 +2,8 @@ hf_download/
 outputs/
 repo/
 loras/
+ext_weights/
+weights/
 input_files/
 queue_images/
 modules/toolbox/model_esrgan/
