@@ -97,21 +97,47 @@ def create_interface(
     with block:
         # --- Toolbar ---
         with gr.Row(elem_id="fixed-toolbar"):
-            gr.HTML(
-                f"""<div style="display: flex; align-items: center;"><h1 class='toolbar-title'>FP Studio</h1><p class='toolbar-version'>{APP_VERSION_DISPLAY}</p><p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p></div>"""
-            )
-            queue_stats_display = gr.HTML(
-                """
-                <div id='queue-stats' class='queue-stats'>
-                  <div class='queue-stats-bar'>
-                    <span class='seg pending'></span>
-                    <span class='seg running'></span>
-                    <span class='seg completed'></span>
-                  </div>
-                  <div class='queue-stats-labels'></div>
-                </div>
-                """
-            )
+            with gr.Column(scale=1, min_width=250):
+                gr.HTML(
+                    f"""<div style="display: flex; align-items: center;"><h1 class='toolbar-title'>FP Studio</h1><p class='toolbar-version'>{APP_VERSION_DISPLAY}</p><p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'><img src="patreon.svg"/></a></p></div>"""
+                )
+            with gr.Column(scale=3, min_width=250, elem_id="toolbar-right-col"):
+                queue_stats_display = gr.HTML(
+                    """
+                    <div id='queue-stats' class='queue-stats'>
+                      <div class='queue-stats-bar'>
+                        <span class='seg pending'></span>
+                        <span class='seg running'></span>
+                        <span class='seg completed'></span>
+                      </div>
+                      <div class='queue-stats-labels'></div>
+                    </div>
+                    """
+                )
+            with gr.Column(scale=9, min_width=250, elem_id="toolbar-right-col"):    
+                toolbar_stats_container = gr.HTML(
+                    """
+                    <div id="toolbar-stats-container" class="toolbar-stat-html">
+                      <div class="stats-stack">
+                        <div class='stat-card ram'>
+                          <span class='stat-label'>RAM</span>
+                          <span class='stat-value'>N/A</span>
+                          <div class='stat-bar'><span class='fill'></span></div>
+                        </div>
+                        <div class='stat-card vram'>
+                          <span class='stat-label'>VRAM</span>
+                          <span class='stat-value'>N/A</span>
+                          <div class='stat-bar'><span class='fill'></span></div>
+                        </div>
+                        <div class='stat-card gpu'>
+                          <span class='stat-label'>GPU</span>
+                          <span class='stat-value'>N/A</span>
+                          <div class='stat-bar'><span class='fill'></span></div>
+                        </div>
+                      </div>
+                    </div>
+                    """
+                )
             queue_stats_vars = gr.HTML(
                 """
                 <style id="queue-stats-vars">
@@ -123,31 +149,9 @@ def create_interface(
                 }
                 </style>
                 """
-            )
+            , elem_id="queue-stats-vars-wrapper")
             
-            toolbar_stats_container = gr.HTML(
-                """
-                <div class="stats-stack">
-                  <div class='stat-card ram'>
-                    <span class='stat-label'>RAM</span>
-                    <span class='stat-value'>N/A</span>
-                    <div class='stat-bar'><span class='fill'></span></div>
-                  </div>
-                  <div class='stat-card vram'>
-                    <span class='stat-label'>VRAM</span>
-                    <span class='stat-value'>N/A</span>
-                    <div class='stat-bar'><span class='fill'></span></div>
-                  </div>
-                  <div class='stat-card gpu'>
-                    <span class='stat-label'>GPU</span>
-                    <span class='stat-value'>N/A</span>
-                    <div class='stat-bar'><span class='fill'></span></div>
-                  </div>
-                </div>
-                """,
-                elem_id="toolbar-stats-container",
-                elem_classes="toolbar-stat-html",
-            )
+            
             toolbar_stats_vars = gr.HTML(
                 """
                 <style id="toolbar-stats-vars">
@@ -161,7 +165,7 @@ def create_interface(
                 }
                 </style>
                 """
-            )
+            , elem_id="toolbar-stats-vars-wrapper")
 
         # --- Tabs ---
         with gr.Tabs(elem_id="main_tabs") as main_tabs_component:

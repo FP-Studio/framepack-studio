@@ -34,7 +34,8 @@
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vw;
+    width: 100%;               /* avoid 100vw which can cause horizontal overflow */
+    box-sizing: border-box;    /* include padding in width */
     z-index: 1000;
     background: #333;
     color: #fff;
@@ -43,6 +44,7 @@
     align-items: center;
     gap: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    overflow-x: hidden;        /* ensure no horizontal scroll due to tight right group */
 }
 
 /* Responsive toolbar title */
@@ -578,6 +580,81 @@ body[data-theme="light"] .queue-row-prompt,
 #fixed-toolbar {
   padding: 0 8px !important;
   gap: 6px !important;
+  flex-wrap: nowrap !important;         /* keep one row */
+  justify-content: flex-start;          /* title left, rest flow right */
+  overflow-x: hidden;                   /* prevent horizontal scrollbar caused by tight layouts */
+}
+/* Flexible spacer inserted between title and right-side stats */
+#toolbar-spacer { 
+  flex: 1 1 auto !important; 
+  min-width: 12px; 
+}
+
+/* Place queue stats + device cards using Gradio Column as a right-aligned flex row */
+#toolbar-right-col {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 12px !important;
+  flex-wrap: nowrap !important;
+  min-width: 0 !important; /* allow shrinking without wrapping */
+}
+
+/* Ensure style-wrapper components don't take layout space in the toolbar row */
+#queue-stats-vars-wrapper,
+#toolbar-stats-vars-wrapper {
+  position: absolute !important;
+  left: -99999px !important;   /* off-screen */
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Force the queue stats + device cards to live on the upper-right in one row */
+#toolbar-right {
+  margin-left: auto;               /* push this whole group to the right */
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;               /* keep them side-by-side */
+  min-width: 0;                    /* allow shrink instead of wrapping */
+}
+
+/* IMPORTANT: The flex child of #fixed-toolbar is the Gradio wrapper with this id */
+#toolbar-right-wrap,
+#toolbar-right {
+  margin-left: auto !important;    /* push the whole wrapper to the right */
+}
+
+/* Let Gradio wrappers shrink/grow so the right group can sit on the same row */
+#fixed-toolbar > div {
+  min-width: 0 !important;
+  flex: 0 1 auto !important;
+}
+#fixed-toolbar > div:first-child {
+  flex: 0 0 auto !important;       /* title stays compact */
+}
+
+/* Inside the right group, do NOT push queue stats with auto margin */
+#toolbar-right #queue-stats {
+  margin-left: 0 !important;       /* override earlier global rule */
+}
+
+/* Keep device cards horizontal in the right group */
+#toolbar-right .stats-stack { 
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Slightly smaller min width so three cards fit more often */
+#toolbar-right .stat-card { 
+  min-width: 110px;                     /* allow a bit more shrink to keep all three visible */
+  flex: 0 0 auto;                       /* prevent cards from collapsing */
 }
 
 /* Slightly smaller title */
@@ -592,16 +669,25 @@ body[data-theme="light"] .queue-row-prompt,
 #queue-stats .queue-stats-labels::after { content: var(--qs-label, ''); }
 
 /* Make the queue bar a bit slimmer and narrower */
-#queue-stats .queue-stats-bar { height: 6px; width: 200px; }
+#queue-stats .queue-stats-bar { height: 6px; width: clamp(160px, 18vw, 220px); }
 
 /* Stack toolbar cards vertically and use variables for values */
+/* Ensure the three stat cards align horizontally */
+#toolbar-stats-container .stats-stack,
+#toolbar-stats-container.stats-stack,
 #toolbar-stats-stack,
-#toolbar-stats-container.stats-stack {
+.stats-stack {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap; /* allow wrapping as before */
   gap: 8px;
   align-items: center;
+  flex-wrap: nowrap; /* side-by-side by default */
+}
+
+/* Allow wrapping on small screens only */
+@media (max-width: 768px) {
+  #toolbar-stats-container .stats-stack,
+  .stats-stack { flex-wrap: wrap; }
 }
 /* Give the stats area more room and allow other toolbar items to shrink */
 #toolbar-stats-container {
@@ -613,6 +699,7 @@ body[data-theme="light"] .queue-row-prompt,
 #queue-stats { 
   flex: 0 1 auto; 
   min-width: 160px; 
+  margin-left: auto;                    /* push queue stats (and following items) to right */
 }
 #queue-stats .queue-stats-bar { 
   width: 200px;
