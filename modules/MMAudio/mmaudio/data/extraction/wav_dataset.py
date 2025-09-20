@@ -89,7 +89,7 @@ class WavTextClipsDataset(Dataset):
                 audio_chunk = audio_chunk / abs_max * 0.95
 
             if self.reject_silent and abs_max < 1e-6:
-                log.warning(f'Rejecting silent audio')
+                log.warning('Rejecting silent audio')
                 return None
 
             audio_chunk = audio_chunk[start_sample:end_sample]

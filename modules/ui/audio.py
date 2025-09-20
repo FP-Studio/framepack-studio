@@ -191,7 +191,9 @@ def connect_audio_events(a, settings):
         p.mkdir(parents=True, exist_ok=True)
         return p
 
-    def _scan_previous_versions_for_video(video_path: Optional[str]) -> Tuple[dict, dict]:
+    def _scan_previous_versions_for_video(
+        video_path: Optional[str],
+    ) -> Tuple[dict, dict]:
         """
         Returns:
           - update for prev_versions_dropdown (choices and selected value)
@@ -203,7 +205,9 @@ def connect_audio_events(a, settings):
         stem = Path(video_path).stem
         out_dir = _audio_output_dir()
         # Find mp4 files matching stem_*.mp4
-        mp4s: List[Path] = sorted(out_dir.glob(f"{stem}_*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+        mp4s: List[Path] = sorted(
+            out_dir.glob(f"{stem}_*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True
+        )
         if not mp4s:
             # no previous mp4s
             return gr.update(choices=[], value=None), gr.update(value=None)
@@ -232,10 +236,22 @@ def connect_audio_events(a, settings):
         ok, msg = _validate_inputs(video_path, prompt_text)
         if not ok:
             # 5 outputs: audio_output, video_output, status, prev_dropdown, prev_preview
-            return gr.update(), gr.update(), gr.update(value=f"❌ {msg}"), gr.update(), gr.update()
+            return (
+                gr.update(),
+                gr.update(),
+                gr.update(value=f"❌ {msg}"),
+                gr.update(),
+                gr.update(),
+            )
 
         # Status: starting
-        yield gr.update(), gr.update(), gr.update(value="⏳ Loading MMAudio..."), gr.update(), gr.update()
+        yield (
+            gr.update(),
+            gr.update(),
+            gr.update(value="⏳ Loading MMAudio..."),
+            gr.update(),
+            gr.update(),
+        )
 
         net = None
         feature_utils = None
@@ -255,7 +271,7 @@ def connect_audio_events(a, settings):
                 setup_eval_logging,
             )
             from mmaudio.model.flow_matching import FlowMatching
-            from mmaudio.model.networks import MMAudio, get_my_mmaudio
+            from mmaudio.model.networks import get_my_mmaudio
             from mmaudio.model.utils.features_utils import FeaturesUtils
 
             audio_output_dir = _audio_output_dir()
@@ -264,7 +280,13 @@ def connect_audio_events(a, settings):
             setup_eval_logging()
 
             if variant_name not in all_model_cfg:
-                yield gr.update(), gr.update(), gr.update(value=f"❌ Unknown model variant: {variant_name}"), gr.update(), gr.update()
+                yield (
+                    gr.update(),
+                    gr.update(),
+                    gr.update(value=f"❌ Unknown model variant: {variant_name}"),
+                    gr.update(),
+                    gr.update(),
+                )
                 return
 
             model: ModelConfig = all_model_cfg[variant_name]
@@ -283,12 +305,16 @@ def connect_audio_events(a, settings):
             # Load network and weights
             net = get_my_mmaudio(model.model_name).to(device, dtype).eval()
             # weights_only=True is used in the demo; keep parity
-            net.load_weights(torch.load(model.model_path, map_location=device, weights_only=True))
+            net.load_weights(
+                torch.load(model.model_path, map_location=device, weights_only=True)
+            )
 
             # Seed / sampler
             rng = torch.Generator(device=device)
             rng.manual_seed(int(seed_val))
-            fm = FlowMatching(min_sigma=0, inference_mode="euler", num_steps=int(steps_val))
+            fm = FlowMatching(
+                min_sigma=0, inference_mode="euler", num_steps=int(steps_val)
+            )
 
             # Feature utils
             feature_utils = FeaturesUtils(
@@ -302,7 +328,13 @@ def connect_audio_events(a, settings):
             feature_utils = feature_utils.to(device, dtype).eval()
 
             # Status: loading video
-            yield gr.update(), gr.update(), gr.update(value="📼 Loading and preprocessing video..."), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                gr.update(),
+                gr.update(value="📼 Loading and preprocessing video..."),
+                gr.update(),
+                gr.update(),
+            )
 
             video_path_obj = Path(video_path)
             video_info = load_video(video_path_obj, float(duration_sec))
@@ -320,10 +352,18 @@ def connect_audio_events(a, settings):
             # Update model seq lengths
             seq_cfg = model.seq_cfg
             seq_cfg.duration = float(duration_sec)
-            net.update_seq_lengths(seq_cfg.latent_seq_len, seq_cfg.clip_seq_len, seq_cfg.sync_seq_len)
+            net.update_seq_lengths(
+                seq_cfg.latent_seq_len, seq_cfg.clip_seq_len, seq_cfg.sync_seq_len
+            )
 
             # Status: generating
-            yield gr.update(), gr.update(), gr.update(value="🎧 Generating audio... This may take a while..."), gr.update(), gr.update()
+            yield (
+                gr.update(),
+                gr.update(),
+                gr.update(value="🎧 Generating audio... This may take a while..."),
+                gr.update(),
+                gr.update(),
+            )
 
             # Run generation
             audios = generate(
@@ -350,7 +390,13 @@ def connect_audio_events(a, settings):
             video_save_path = None
             if not skip_video_composite_val:
                 # Status: compositing
-                yield gr.update(value=str(audio_save_path)), gr.update(), gr.update(value="🎬 Compositing video with generated audio..."), gr.update(), gr.update()
+                yield (
+                    gr.update(value=str(audio_save_path)),
+                    gr.update(),
+                    gr.update(value="🎬 Compositing video with generated audio..."),
+                    gr.update(),
+                    gr.update(),
+                )
                 video_save_path = audio_output_dir / f"{stem}_{int(seed_val)}_{ts}.mp4"
                 make_video(video_info, video_save_path, audio, sampling_rate=sr)
 
@@ -364,7 +410,9 @@ def connect_audio_events(a, settings):
 
             yield (
                 gr.update(value=str(audio_save_path)),
-                gr.update(value=str(video_save_path)) if video_save_path else gr.update(),
+                gr.update(value=str(video_save_path))
+                if video_save_path
+                else gr.update(),
                 gr.update(value=status_msg),
                 dd_upd,
                 prev_upd,
@@ -374,12 +422,19 @@ def connect_audio_events(a, settings):
             logger.exception("Error during MMAudio generation")
             # Also attempt to refresh list even on error
             dd_upd, prev_upd = _scan_previous_versions_for_video(video_path)
-            yield gr.update(), gr.update(), gr.update(value=f"❌ Error: {e}"), dd_upd, prev_upd
+            yield (
+                gr.update(),
+                gr.update(),
+                gr.update(value=f"❌ Error: {e}"),
+                dd_upd,
+                prev_upd,
+            )
         finally:
             # Proactively unload models to free VRAM/CPU RAM
             try:
                 import gc
                 import torch  # type: ignore
+
                 # Remove refs
                 del net
                 del feature_utils
@@ -388,7 +443,9 @@ def connect_audio_events(a, settings):
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception as _e:
-                logger.debug(f"Cleanup after MMAudio generation encountered a non-fatal issue: {_e}")
+                logger.debug(
+                    f"Cleanup after MMAudio generation encountered a non-fatal issue: {_e}"
+                )
 
     # Click binding with streaming status updates (now returns 5 outputs)
     a["generate_btn"].click(

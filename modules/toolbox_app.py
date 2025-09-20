@@ -1640,7 +1640,9 @@ def tb_get_formatted_toolbar_stats():
             if nvidia_metrics:
                 vram_used = nvidia_metrics.get("memory_used_gb", 0.0)
                 vram_total = nvidia_metrics.get("memory_total_gb", 0.0)
-                vram_pct = int(round((vram_used / vram_total) * 100)) if vram_total else 0
+                vram_pct = (
+                    int(round((vram_used / vram_total) * 100)) if vram_total else 0
+                )
                 vram_value_str = f"{vram_used:.1f}/{round(vram_total)}GB ({vram_pct}%)"
 
                 temp = nvidia_metrics.get("temperature", 0.0)
@@ -1648,7 +1650,9 @@ def tb_get_formatted_toolbar_stats():
                 gpu_load_pct = int(round(load))
                 gpu_value_str = f"{temp:.0f}°C {gpu_load_pct}%"
     except Exception as e:
-        print(f"Error getting system stats values for toolbar (from toolbox_app.py): {e}")
+        print(
+            f"Error getting system stats values for toolbar (from toolbox_app.py): {e}"
+        )
 
     css_vars = f"""
 <style id="toolbar-stats-vars">

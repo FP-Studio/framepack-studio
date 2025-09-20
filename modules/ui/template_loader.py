@@ -289,8 +289,12 @@ def render_queue_row(
 
     # Set viewBox based on status
     viewbox = "0 0 6 10" if status_class == "running" else "0 0 24 24"
-    action_label = "Cancel" if status_class in ("pending", "running", "cancelling") else "Remove"
-    action_type = "cancel" if status_class in ("pending", "running", "cancelling") else "remove"
+    action_label = (
+        "Cancel" if status_class in ("pending", "running", "cancelling") else "Remove"
+    )
+    action_type = (
+        "cancel" if status_class in ("pending", "running", "cancelling") else "remove"
+    )
     action_disabled = "disabled" if status_class == "cancelling" else ""
 
     return template_loader.render_html_template(

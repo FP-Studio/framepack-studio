@@ -7,7 +7,6 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data.dataset import Dataset
 
-from mmaudio.utils.dist_utils import local_rank
 
 log = logging.getLogger()
 

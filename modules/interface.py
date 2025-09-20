@@ -116,7 +116,7 @@ def create_interface(
                     f"""<div style="display: flex; align-items: center;"><h1 class='toolbar-title'>FP Studio</h1><p class='toolbar-version'>{APP_VERSION_DISPLAY}</p><p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>{patreon_svg_inline}</a></p><p class='toolbar-discord'><a href='https://discord.com/invite/MtuM7gFJ3V' target='_blank'>{discord_svg_inline}</a></p></div>"""
                 )
             with gr.Column(scale=3, min_width=250, elem_id="toolbar-right-col"):
-                queue_stats_display = gr.HTML(
+                gr.HTML(
                     """
                     <div id='queue-stats' class='queue-stats'>
                       <div class='queue-stats-bar'>
@@ -128,8 +128,8 @@ def create_interface(
                     </div>
                     """
                 )
-            with gr.Column(scale=9, min_width=250, elem_id="toolbar-right-col"):    
-                toolbar_stats_container = gr.HTML(
+            with gr.Column(scale=9, min_width=250, elem_id="toolbar-right-col"):
+                gr.HTML(
                     """
                     <div id="toolbar-stats-container" class="toolbar-stat-html">
                       <div class="stats-stack">
@@ -162,10 +162,10 @@ def create_interface(
                   --qs-label: 'Q: 0 • R: 0 • C: 0';
                 }
                 </style>
-                """
-            , elem_id="queue-stats-vars-wrapper")
-            
-            
+                """,
+                elem_id="queue-stats-vars-wrapper",
+            )
+
             toolbar_stats_vars = gr.HTML(
                 """
                 <style id="toolbar-stats-vars">
@@ -178,8 +178,9 @@ def create_interface(
                   --gpu-text: 'N/A';
                 }
                 </style>
-                """
-            , elem_id="toolbar-stats-vars-wrapper")
+                """,
+                elem_id="toolbar-stats-vars-wrapper",
+            )
 
         # --- Tabs ---
         with gr.Tabs(elem_id="main_tabs") as main_tabs_component:

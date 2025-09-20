@@ -1049,7 +1049,11 @@ class VideoJobQueue:
                     return False
 
                 # For pending jobs, prefer users to use cancel_job so the worker loop can skip it cleanly.
-                if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                if job.status in [
+                    JobStatus.COMPLETED,
+                    JobStatus.FAILED,
+                    JobStatus.CANCELLED,
+                ]:
                     # Ensure we are not deleting the current running job by mistake
                     if self.current_job and self.current_job.id == job_id:
                         return False
@@ -1070,6 +1074,7 @@ class VideoJobQueue:
             return removed
         except Exception as e:
             import traceback
+
             print(f"Error in remove_job: {e}")
             traceback.print_exc()
             return False

@@ -280,14 +280,20 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
                         # Fallback: positional mapping when lengths match selected list
                         idx = selected_loras.index(lora_name)
                         weight = lora_values[idx]
-                elif isinstance(lora_values, list) and len(lora_values) == len(selected_loras):
+                elif isinstance(lora_values, list) and len(lora_values) == len(
+                    selected_loras
+                ):
                     # Fallback when no loaded_names but lengths match
                     idx = selected_loras.index(lora_name)
                     weight = lora_values[idx]
 
                 # Normalize weight types
                 if isinstance(weight, np.ndarray):
-                    weight_value = float(weight.item()) if weight.size == 1 else float(weight.mean())
+                    weight_value = (
+                        float(weight.item())
+                        if weight.size == 1
+                        else float(weight.mean())
+                    )
                 elif isinstance(weight, list):
                     weight_value = float(weight[0]) if len(weight) > 0 else 1.0
                 else:

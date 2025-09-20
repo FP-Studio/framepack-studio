@@ -11,7 +11,6 @@ import torch.nn as nn
 from einops import rearrange, repeat
 from timm.layers import to_2tuple
 from torch import einsum
-from torch.nn import functional as F
 
 default_cfgs = {
     'vit_1k':
@@ -360,7 +359,7 @@ def load_pretrained(model,
                 print(
                     f'Converted input conv {input_conv_name} pretrained weights from 3 to {in_chans} channel(s)'
                 )
-            except NotImplementedError as e:
+            except NotImplementedError:
                 del state_dict[weight_name]
                 strict = False
                 print(

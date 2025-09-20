@@ -205,7 +205,9 @@ def create_queue_ui():
                 )
             # Hidden bridge components for per-item queue actions
             queue_action_input = gr.Textbox(visible=False, elem_id="queue-action-input")
-            queue_action_trigger = gr.Button("Queue Action", visible=False, elem_id="queue-action-trigger")
+            queue_action_trigger = gr.Button(
+                "Queue Action", visible=False, elem_id="queue-action-trigger"
+            )
             with gr.Accordion("Queue Documentation", open=False):
                 gr.Markdown(get_queue_documentation())
     return {
