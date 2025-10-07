@@ -6,9 +6,10 @@ import json
 import logging
 
 from modules.ui.audio import _ensure_mmaudio_on_path
+
 _ensure_mmaudio_on_path()
 
-from mmaudio.eval_utils import all_model_cfg # noqa: E402
+from mmaudio.eval_utils import all_model_cfg  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +43,13 @@ def create_outputs_ui(settings):
                         label="Select mmaudio model",
                         choices=all_model_cfg.keys(),
                         multiselect=False,
-                        value='large_44k_v2',
+                        value="large_44k_v2",
                         info="Select one mmaudio model to use, to generate audio",
                         # scale=1,
                     )
-                    overwrite_audio_chkbox = gr.Checkbox(label="Overwrite audio", visible=False)
+                    overwrite_audio_chkbox = gr.Checkbox(
+                        label="Overwrite audio", visible=False
+                    )
 
                     with gr.Blocks():
                         audio_prompt_chkbox = gr.Checkbox(label="Append")
@@ -88,7 +91,9 @@ def create_outputs_ui(settings):
     }
 
 
-def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component: gr.Tabs):
+def connect_outputs_events(
+    o, tb_target_video_input: gr.Tab, main_tabs_component: gr.Tabs
+):
     def get_gallery_items() -> List[tuple[str, str]]:
         if not os.path.exists(o["outputDirectory_metadata"]):
             logging.error(
@@ -150,7 +155,9 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
                     continue
         return selected_file
 
-    def load_video_and_info_from_prefix(prefix) -> tuple[None, str, gr.Button, None] | tuple[str, str, gr.Button, str]:
+    def load_video_and_info_from_prefix(
+        prefix,
+    ) -> tuple[None, str, gr.Button, None] | tuple[str, str, gr.Button, str]:
         video_file = get_latest_video_version(prefix)
         if not video_file:
             video_file = f"{prefix}.mp4"
@@ -171,7 +178,9 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             video_path,
         )
 
-    def delete_selected_item(selected_prefix: str) -> tuple[gr.Video, gr.State, List, gr.Gallery, gr.Button, gr.Accordion]:
+    def delete_selected_item(
+        selected_prefix: str,
+    ) -> tuple[gr.Video, gr.State, List, gr.Gallery, gr.Button, gr.Accordion]:
         if not selected_prefix:
             return (
                 gr.update(visible=False),  # video out
@@ -225,10 +234,23 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             new_items,  # gallery_items_state
             gr.update(value=[item[0] for item in new_items]),  # thumbs
             gr.update(visible=False),  # delete button
-            gr.update(visible=False, open=False),  # Make generate audio accordion invisible
+            gr.update(
+                visible=False, open=False
+            ),  # Make generate audio accordion invisible
         )
 
-    def on_select(gallery_items, evt: gr.SelectData) -> tuple[gr.Video, gr.Textbox, gr.Button, gr.State, gr.Button, gr.State, gr.Accordion, gr.Checkbox]:
+    def on_select(
+        gallery_items, evt: gr.SelectData
+    ) -> tuple[
+        gr.Video,
+        gr.Textbox,
+        gr.Button,
+        gr.State,
+        gr.Button,
+        gr.State,
+        gr.Accordion,
+        gr.Checkbox,
+    ]:
         if evt.index is None or not gallery_items or evt.index >= len(gallery_items):
             return (
                 gr.update(visible=False),  # video_out
@@ -249,7 +271,9 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
         overwrite_audio_checkbox_visibility = check_audio(prefix)[0]
 
         return (
-            gr.update(value=original_video_path, visible=bool(original_video_path)),  # video_out
+            gr.update(
+                value=original_video_path, visible=bool(original_video_path)
+            ),  # video_out
             gr.update(value=info_string, visible=bool(original_video_path)),  # info_out
             gr.update(visible=bool(original_video_path)),  # send_to_toolbox_btn
             new_selected_path,  # selected_original_video_path_state
@@ -274,6 +298,7 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
         video_file_path = get_video_file_and_metadata(selected_prefix)[0]
 
         from moviepy import VideoFileClip
+
         video_clip = VideoFileClip(video_file_path)
 
         # get the audio from the video
@@ -288,14 +313,15 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             video_duration,
         )
 
-    def generate_audio(selected_prefix: str,
-                       audio_model_dropdown: gr.Dropdown,
-                       overwrite_audio_chkbox: gr.Checkbox,
-                       audio_prompt_txt: gr.Textbox,
-                       audio_prompt_neg_txt: gr.Textbox,
-                       audio_prompt_chkbox: gr.Checkbox,
-                       audio_prompt_neg_chkbox: gr.Checkbox) \
-            -> tuple[gr.State]:
+    def generate_audio(
+        selected_prefix: str,
+        audio_model_dropdown: gr.Dropdown,
+        overwrite_audio_chkbox: gr.Checkbox,
+        audio_prompt_txt: gr.Textbox,
+        audio_prompt_neg_txt: gr.Textbox,
+        audio_prompt_chkbox: gr.Checkbox,
+        audio_prompt_neg_chkbox: gr.Checkbox,
+    ) -> tuple[gr.State]:
         if not selected_prefix:
             return (
                 None,  # selected_original_video_path_state
@@ -310,7 +336,9 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
         logger.info("GENAudio: Loading video")
 
         if video_audio is not None and overwrite_audio_chkbox is False:
-            logging.info("GENAudio: Audio exists but overwrite audio is unchecked -> skipping")
+            logging.info(
+                "GENAudio: Audio exists but overwrite audio is unchecked -> skipping"
+            )
             return (
                 None,  # selected_original_video_path_state
             )
@@ -334,15 +362,22 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
         if audio_prompt_neg_chkbox:
             negative_prompt += audio_prompt_neg_txt
         else:
-            negative_prompt = get_prompt(metadata.get("negative_prompt", ""), audio_prompt_neg_txt)
+            negative_prompt = get_prompt(
+                metadata.get("negative_prompt", ""), audio_prompt_neg_txt
+            )
 
         # Append missing words from the DEFAULT_AUDIO_NEGATIVE_PROMPT list to the negative prompt
         from modules.MMAudio.app import DEFAULT_AUDIO_NEGATIVE_PROMPT
-        missing_words = [word for word in DEFAULT_AUDIO_NEGATIVE_PROMPT if word not in negative_prompt]
+
+        missing_words = [
+            word
+            for word in DEFAULT_AUDIO_NEGATIVE_PROMPT
+            if word not in negative_prompt
+        ]
         if missing_words:
-            if not negative_prompt.endswith(','):
-                negative_prompt += ', '
-            negative_prompt += ', '.join(missing_words)
+            if not negative_prompt.endswith(","):
+                negative_prompt += ", "
+            negative_prompt += ", ".join(missing_words)
 
         steps = metadata.get("steps", 25)
         cfg_strength = metadata.get("cfg", 1)
@@ -352,27 +387,36 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
         if audio_model_dropdown:
             model_config = all_model_cfg.get(audio_model_dropdown)
 
-        logger.info(f"GENAudio: Generating audio with\n"
-                    f" prompt:{str(prompt)}\n"
-                    f" negative prompt:{str(negative_prompt)}\n"
-                    f" steps:{str(steps)}\n"
-                    f" cfg:{str(cfg_strength)}")
+        logger.info(
+            f"GENAudio: Generating audio with\n"
+            f" prompt:{str(prompt)}\n"
+            f" negative prompt:{str(negative_prompt)}\n"
+            f" steps:{str(steps)}\n"
+            f" cfg:{str(cfg_strength)}"
+        )
 
         from modules.MMAudio.app import get_mmaudio_model, add_audio_to_video
-        audio_net_model, features_utils, sequence_config = get_mmaudio_model(model_config)
-        video_with_audio_path = add_audio_to_video(video_path=video_file,
-                                                   prompt=prompt,
-                                                   audio_negative_prompt=negative_prompt,
-                                                   audio_steps=steps,
-                                                   audio_cfg_strength=cfg_strength,
-                                                   duration=duration,
-                                                   audio_net=audio_net_model,
-                                                   audio_feature_utils=features_utils,
-                                                   audio_seq_cfg=sequence_config,
-                                                   overwrite_orig_file=True)
+
+        audio_net_model, features_utils, sequence_config = get_mmaudio_model(
+            model_config
+        )
+        video_with_audio_path = add_audio_to_video(
+            video_path=video_file,
+            prompt=prompt,
+            audio_negative_prompt=negative_prompt,
+            audio_steps=steps,
+            audio_cfg_strength=cfg_strength,
+            duration=duration,
+            audio_net=audio_net_model,
+            audio_feature_utils=features_utils,
+            audio_seq_cfg=sequence_config,
+            overwrite_orig_file=True,
+        )
 
         if video_with_audio_path is not None:
-            logger.info("Generating audio finished for video: " + video_with_audio_path.name)
+            logger.info(
+                "Generating audio finished for video: " + video_with_audio_path.name
+            )
         else:
             logger.info("Error generating audio for video: " + video_file.name)
 
@@ -388,9 +432,11 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
 
         if video_audio is not None:
             from mmaudio.eval_utils import load_video
+
             video_info = load_video(video_file_path, duration)
 
             from mmaudio.data.av_utils import reencode_without_audio
+
             reencode_without_audio(video_info, video_file_path)
 
             logger.info(f"Deleted audio for video {str(video_file_path)}")
@@ -415,9 +461,7 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
                 )
         except Exception as e:
             logger.error(f"Error checking audio: {e}")
-            return (
-                gr.update(visible=False),
-            )
+            return (gr.update(visible=False),)
 
     o["refresh_gallery_button"].click(
         fn=refresh_gallery, inputs=[], outputs=[o["gallery_items_state"], o["thumbs"]]
@@ -433,7 +477,7 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             o["delete_btn"],
             o["selected_prefix_state"],
             o["gen_audio_acc"],
-            o["overwrite_audio_chkbox"]
+            o["overwrite_audio_chkbox"],
         ],
     )
     o["send_to_toolbox_btn"].click(
@@ -451,7 +495,7 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             o["thumbs"],
             o["delete_btn"],
             o["gen_audio_acc"],
-        ]
+        ],
     )
     o["gen_audio_btn"].click(
         fn=generate_audio,
@@ -464,16 +508,24 @@ def connect_outputs_events(o, tb_target_video_input: gr.Tab, main_tabs_component
             o["audio_prompt_chkbox"],
             o["audio_prompt_neg_chkbox"],
         ],
-        outputs=[o["selected_original_video_path_state"], ],
+        outputs=[
+            o["selected_original_video_path_state"],
+        ],
     )
     o["audio_delete_btn"].click(
         fn=delete_audio,
-        inputs=[o["selected_prefix_state"], ],
+        inputs=[
+            o["selected_prefix_state"],
+        ],
         outputs=[],
     )
     o["gen_audio_acc"].expand(
         fn=check_audio,
-        inputs=[o["selected_prefix_state"], ],
-        outputs=[o["overwrite_audio_chkbox"], ],
+        inputs=[
+            o["selected_prefix_state"],
+        ],
+        outputs=[
+            o["overwrite_audio_chkbox"],
+        ],
     )
     return get_gallery_items
