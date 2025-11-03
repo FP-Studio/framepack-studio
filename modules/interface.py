@@ -334,13 +334,16 @@ def create_interface(
         )
         connect_audio_events(a, settings)
 
-        def refresh_loras():
+        def refresh_loras(current_selected):
             if enumerate_lora_dir_fn:
                 new_lora_names = enumerate_lora_dir_fn()
-                return gr.update(choices=new_lora_names)
+                preserved = [name for name in (current_selected or []) if name in new_lora_names]
+                return gr.update(choices=new_lora_names, value=preserved)
             return gr.update()
 
-        g["refresh_loras_button"].click(fn=refresh_loras, outputs=[g["lora_selector"]])
+        g["refresh_loras_button"].click(
+            fn=refresh_loras, inputs=[g["lora_selector"]], outputs=[g["lora_selector"]]
+        )
 
         # General Connections
         def initial_gallery_load():

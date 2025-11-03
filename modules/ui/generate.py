@@ -273,7 +273,7 @@ def create_generate_ui(
                         latent_window_size = gr.Slider(
                             label="Latent Window Size",
                             minimum=1,
-                            maximum=33,
+                            maximum=60,
                             value=9,
                             step=1,
                             info="Change at your own risk, very experimental",
@@ -611,6 +611,16 @@ def connect_generate_events(g, s, q, f):
             if is_ui_video_model and input_video_arg is not None
             else None
         )
+        # Realign LoRA names and weights to the stable slider order to prevent mis-mapping after refresh
+        # The slider components are created at UI build time and their order remains stable.
+        # After refreshing available LoRAs, choices can change, but we must keep lora_loaded_names (state)
+        # aligned with the slider input order to avoid mixing/misalignment of weights.
+        stable_slider_order = list(g["lora_sliders"].keys())
+        incoming_weight_by_name = dict(zip(stable_slider_order, lora_slider_values_tuple))
+        # Override the lora_names_states and weights passed to the backend to match the stable slider order
+        lora_names_states_arg = stable_slider_order
+        lora_slider_values_tuple = [incoming_weight_by_name.get(name, 1.0) for name in stable_slider_order]
+
         result = f["process_fn"](
             backend_model_type,
             input_data,
