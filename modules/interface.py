@@ -337,7 +337,9 @@ def create_interface(
         def refresh_loras(current_selected):
             if enumerate_lora_dir_fn:
                 new_lora_names = enumerate_lora_dir_fn()
-                preserved = [name for name in (current_selected or []) if name in new_lora_names]
+                preserved = [
+                    name for name in (current_selected or []) if name in new_lora_names
+                ]
                 return gr.update(choices=new_lora_names, value=preserved)
             return gr.update()
 
