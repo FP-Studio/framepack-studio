@@ -155,6 +155,53 @@ def vae_decode(latents, vae, image_mode=False):
 
     return image
 
+@torch.no_grad()
+def vae_decode_with_tiling(latents, vae, low_vram_tiling_enabled=False):
+    """
+    Decode latents using VAE's built-in tiling support for low VRAM.
+    Important: HunyuanVideo has temporal_compression_ratio=4, so:
+    - Pixel space stride gets divided by 4 to get latent space stride
+    - Minimum temporal stride in pixel space must be >= 4 to avoid 0 in latent space
+    """
+    if low_vram_tiling_enabled:
+        # Tiling configuration for 8GB VRAM
+        tile_height = 128
+        tile_width = 128
+        tile_frames = 5  # Minimum practical size (2 latents -> 5 frames)
+
+        # CRITICAL: stride_frames must be >= temporal_compression_ratio (4)
+        # Otherwise: latent_stride = pixel_stride / 4 = 0 (causes "range() arg 3 must not be zero")
+        stride_height = 64     # 50% overlap for spatial dimensions
+        stride_width = 64      # 50% overlap for spatial dimensions
+        stride_frames = 4      # Minimum to avoid 0 in latent space (4/4 = 1 latent frame)
+
+        vae.enable_tiling(
+            tile_sample_min_height=tile_height,
+            tile_sample_min_width=tile_width,
+            tile_sample_min_num_frames=tile_frames,
+            tile_sample_stride_height=stride_height,
+            tile_sample_stride_width=stride_width,
+            tile_sample_stride_num_frames=stride_frames  # Must be >= 4!
+        )
+        print(f"[VAE] Tiling enabled: tiles={tile_height}x{tile_width}x{tile_frames}f, strides={stride_height}x{stride_width}x{stride_frames}f")
+        print(f"[VAE] Latent space stride: {stride_frames//4} latent frames")
+
+    latents = latents / vae.config.scaling_factor
+    latents = latents.to(device=vae.device, dtype=vae.dtype)
+
+    try:
+        with torch.amp.autocast('cuda', enabled=True, dtype=torch.bfloat16):
+            decoded = vae.decode(latents).sample
+
+        print(f"[VAE Decode] Output shape: {decoded.shape}")
+        return decoded
+
+    except Exception as e:
+        print(f"[VAE Decode Error] {e}")
+        raise
+    finally:
+        if low_vram_tiling_enabled:
+            vae.disable_tiling()
 
 @torch.no_grad()
 def vae_encode(image, vae):

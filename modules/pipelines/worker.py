@@ -13,7 +13,7 @@ from diffusers_helper.utils import save_bcthw_as_mp4, generate_timestamp, resize
 from diffusers_helper.memory import cpu, gpu, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, unload_complete_models, load_model_as_complete
 from diffusers_helper.thread_utils import AsyncStream
 from diffusers_helper.gradio.progress_bar import make_progress_bar_html
-from diffusers_helper.hunyuan import vae_decode
+from diffusers_helper.hunyuan import vae_decode, vae_decode_with_tiling
 from modules.video_queue import JobStatus
 from modules.prompt_handler import parse_timestamped_prompt
 from modules.generators import create_model_generator
@@ -118,7 +118,7 @@ def worker(
     print(f"Worker: Selected LoRAs for this worker: {selected_loras}")
     
     # Import globals from the main module
-    from __main__ import high_vram, args, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, image_encoder, feature_extractor, prompt_embedding_cache, settings, stream
+    from __main__ import high_vram, ultra_low_vram, args, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, image_encoder, feature_extractor, prompt_embedding_cache, settings, stream
     
     # Ensure any existing LoRAs are unloaded from the current generator
     if studio_module.current_generator is not None:
@@ -133,6 +133,12 @@ def worker(
 
     total_latent_sections = (total_second_length * 30) / (latent_window_size * 4)
     total_latent_sections = int(max(round(total_latent_sections), 1))
+    print(f"total_second_length: {total_second_length}")
+    print(f"latent_window_size: {latent_window_size}")
+    print(f"total_latent_sections computed: {total_latent_sections}")
+    print(f"Expected total frames (seconds * FPS): {total_second_length * 30}")
+    print(f"Frames per section (latent_window_size * 4): {latent_window_size * 4}")
+
 
     # --- Total progress tracking ---
     total_steps = total_latent_sections * steps  # Total diffusion steps over all segments
@@ -893,20 +899,20 @@ def worker(
 
             # Get real history latents using the generator
             real_history_latents = studio_module.current_generator.get_real_history_latents(history_latents, total_generated_latent_frames)
-
             if history_pixels is None:
-                history_pixels = vae_decode(real_history_latents, vae).cpu()
+                history_pixels = vae_decode_with_tiling(real_history_latents, vae, low_vram_tiling_enabled=ultra_low_vram).cpu()
             else:
                 section_latent_frames = (latent_window_size * 2 + 1) if model_type in ("Original", "Original with Endframe") and has_input_image and is_last_section else studio_module.current_generator.get_section_latent_frames(latent_window_size, is_last_section)
-                overlapped_frames = latent_window_size * 4 - 3
-
                 # Get current pixels using the generator
-                current_pixels = studio_module.current_generator.get_current_pixels(real_history_latents, section_latent_frames, vae)
+                current_pixels = studio_module.current_generator.get_current_pixels(real_history_latents, section_latent_frames, vae, low_vram_tiling_enabled=ultra_low_vram)
+                # Calculate overlapped frames safely
+                overlapped_frames = min(latent_window_size * 4 - 3, history_pixels.shape[2], current_pixels.shape[2])
                 
                 # Update history pixels using the generator
                 history_pixels = studio_module.current_generator.update_history_pixels(history_pixels, current_pixels, overlapped_frames)
                 
                 print(f"{model_type} model section {section_idx+1}/{total_latent_sections}, history_pixels shape: {history_pixels.shape}")
+
 
             if not high_vram:
                 unload_complete_models()

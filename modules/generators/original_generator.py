@@ -164,6 +164,7 @@ class OriginalModelGenerator(BaseModelGenerator):
         """
         from diffusers_helper.utils import soft_append_bcthw
         # For Original model, current_pixels is first, history_pixels is second
+        # IMPORTANT: Correct argument order is (current_pixels, history_pixels, overlapped_frames)
         return soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
     
     def get_section_latent_frames(self, latent_window_size, is_last_section):
@@ -179,7 +180,7 @@ class OriginalModelGenerator(BaseModelGenerator):
         """
         return latent_window_size * 2
     
-    def get_current_pixels(self, real_history_latents, section_latent_frames, vae):
+    def get_current_pixels(self, real_history_latents, section_latent_frames, vae, low_vram_tiling_enabled=False):
         """
         Get the current pixels for the Original model.
         
@@ -191,9 +192,9 @@ class OriginalModelGenerator(BaseModelGenerator):
         Returns:
             The current pixels
         """
-        from diffusers_helper.hunyuan import vae_decode
-        return vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
-    
+        from diffusers_helper.hunyuan import vae_decode_with_tiling
+        return vae_decode_with_tiling(real_history_latents[:, :, :section_latent_frames], vae, low_vram_tiling_enabled=low_vram_tiling_enabled).cpu()
+
     def format_position_description(self, total_generated_latent_frames, current_pos, original_pos, current_prompt):
         """
         Format the position description for the Original model.
