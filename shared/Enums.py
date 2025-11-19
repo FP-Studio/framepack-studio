@@ -14,7 +14,6 @@ class QuantizationFormat(StrEnum):
     NONE = brain_floating_point_16bit
     DEFAULT = NONE
 
-
     @staticmethod
     def supported_values() -> list[str]:
         """Returns a list of all supported QuantizationFormat values."""
@@ -45,7 +44,6 @@ class LoraLoader(StrEnum):
     DIFFUSERS = "diffusers"
     LORA_READY = "lora_ready"
     DEFAULT = LORA_READY
-
 
     @staticmethod
     def supported_values() -> list[str]:

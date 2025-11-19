@@ -122,7 +122,27 @@ def reencode_with_audio(video_info: VideoInfo, output_path: Path, audio: torch.T
         container.mux(packet)
 
     container.close()
+    
 
+def reencode_without_audio(video_info: VideoInfo, output_path: Path):
+    container = av.open(output_path, 'w')
+    output_video_stream = container.add_stream('h264', video_info.fps)
+    output_video_stream.codec_context.bit_rate = 10 * 1e6  # 10 Mbps
+    output_video_stream.width = video_info.width
+    output_video_stream.height = video_info.height
+    output_video_stream.pix_fmt = 'yuv420p'
+
+    # encode video
+    for image in video_info.all_frames:
+        image = av.VideoFrame.from_ndarray(image)
+        packet = output_video_stream.encode(image)
+        container.mux(packet)
+
+    for packet in output_video_stream.encode():
+        container.mux(packet)
+
+    container.close()
+    
 
 def remux_with_audio(video_path: Path, audio: torch.Tensor, output_path: Path, sampling_rate: int):
     """

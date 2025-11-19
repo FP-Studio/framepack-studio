@@ -34,3 +34,7 @@ psutil
 realesrgan
 colorlog
 
+
+# mmaudio
+moviepy
+-r ./modules/MMAudio/requirements.txt
