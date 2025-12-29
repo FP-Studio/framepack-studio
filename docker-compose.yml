@@ -1,0 +1,25 @@
+services:
+  studio:
+    build:
+      # modify this if you are building the image locally and need a different CUDA version
+      args:
+        - CUDA_VERSION=12.4.1
+    # modify the tag here if you need a different CUDA version or branch
+    image: colinurbs/fp-studio:cuda12.4-latest-develop
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - "./loras:/app/loras"
+      - "./outputs:/app/outputs"
+      - "./.framepack:/app/.framepack"
+      - "./modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
+      - "./modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
+      - "$HOME/.cache/huggingface:/app/hf_download"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

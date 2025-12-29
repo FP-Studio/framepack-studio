@@ -1,0 +1,6 @@
+hf_download/
+.framepack/
+loras/
+outputs/
+modules/toolbox/model_esrgan/
+modules/toolbox/model_rife/
