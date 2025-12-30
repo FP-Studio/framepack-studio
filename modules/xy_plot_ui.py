@@ -262,11 +262,10 @@ def create_xy_plot_ui(lora_names, default_prompt, DUMMY_LORA_NAME):
                     xy_plot_end_frame_image_original = gr.Image(
                         sources='upload',
                         type="numpy",
-                        label="End Frame (Optional)", 
-                        height=420, 
+                        label="End Frame (Optional)",
+                        height=420,
                         elem_classes="contain-image",
                         image_mode="RGB",
-                        show_download_button=False,
                         show_label=True,
                         container=True
                     )

@@ -86,10 +86,10 @@ def setup_ffmpeg():
             os.chmod(ffmpeg_path, 0o755)
             os.chmod(ffprobe_path, 0o755)
 
-        print(f"✅ FFmpeg setup complete. Binaries are in: {bin_dir}")
+        print(f"[OK] FFmpeg setup complete. Binaries are in: {bin_dir}")
 
     except Exception as e:
-        print(f"\n❌ Error setting up FFmpeg: {e}")
+        print(f"\n[ERROR] Error setting up FFmpeg: {e}")
         import traceback
         traceback.print_exc()
         print("\nPlease download FFmpeg manually and place the 'ffmpeg' and 'ffprobe' executables in the 'bin' directory.")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import torch
 import gc
@@ -7,10 +9,18 @@ import traceback
 
 from pathlib import Path
 from huggingface_hub import snapshot_download
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
-from realesrgan.archs.srvgg_arch import SRVGGNetCompact
-from basicsr.utils.download_util import load_file_from_url # Import for direct downloads
+
+# Conditional import for BasicSR and RealESRGAN
+try:
+    from basicsr.archs.rrdbnet_arch import RRDBNet
+    from realesrgan import RealESRGANer
+    from realesrgan.archs.srvgg_arch import SRVGGNetCompact
+    from basicsr.utils.download_util import load_file_from_url
+    BASICSR_AVAILABLE = True
+except ImportError:
+    BASICSR_AVAILABLE = False
+    print("[WARNING] BasicSR not available. ESRGAN upscaling features will be disabled.")
+    print("   To enable, install BasicSR: pip install basicsr")
 
 # Conditional import for GFPGAN
 try:
@@ -28,13 +38,16 @@ MODEL_GFPGAN_PATH = _MODULE_DIR / "model_gfpgan"
 
 class ESRGANUpscaler:
     def __init__(self, message_manager: MessageManager, device: torch.device):
+        if not BASICSR_AVAILABLE:
+            raise ImportError("BasicSR is not available. Cannot initialize ESRGANUpscaler.")
+
         self.message_manager = message_manager
         self.device = device
         self.model_dir = Path(MODEL_ESRGAN_PATH)
         self.gfpgan_model_dir = Path(MODEL_GFPGAN_PATH) # GFPGAN model directory
         os.makedirs(self.model_dir, exist_ok=True)
         os.makedirs(self.gfpgan_model_dir, exist_ok=True) # Ensure GFPGAN model dir exists
-        
+
         self.supported_models = {
 
             "RealESRGAN_x2plus": {

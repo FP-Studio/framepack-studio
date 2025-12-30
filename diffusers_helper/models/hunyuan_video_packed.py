@@ -63,7 +63,7 @@ has_flash = flash_attn_func is not None and flash_attn_varlen_func is not None
 has_xformers = xformers_attn_func is not None
 
 if has_sage:
-    print("✅  Using SAGE Attention (highest performance).")
+    print("[OK] Using SAGE Attention (highest performance).")
     ignored = []
     if has_flash:
         ignored.append("Flash Attention")
@@ -72,16 +72,16 @@ if has_sage:
     if ignored:
         print(f"   - Ignoring other installed attention libraries: {', '.join(ignored)}")
 elif has_flash:
-    print("✅  Using Flash Attention (high performance).")
+    print("[OK] Using Flash Attention (high performance).")
     if has_xformers:
         print("   - Consider installing SAGE Attention for highest performance.")
         print("   - Ignoring other installed attention library: xFormers")
 elif has_xformers:
-    print("✅  Using xFormers.")
+    print("[OK] Using xFormers.")
     print("   - Consider installing SAGE Attention for highest performance.")
     print("   - or Consider installing Flash Attention for high performance.")
 else:
-    print("⚠️  No attention library found. Using native PyTorch Scaled Dot Product Attention.")
+    print("[WARNING] No attention library found. Using native PyTorch Scaled Dot Product Attention.")
     print("   - For better performance, consider installing one of:")
     print("     SAGE Attention (highest performance), Flash Attention (high performance), or xFormers.")
 print("-------------------------------\n")

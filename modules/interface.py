@@ -215,7 +215,16 @@ def create_interface(
         white-space: nowrap;
         display: inline-block;
     }
-    
+
+    /* System Monitor Textboxes - Medium gray background for visibility */
+    .toolbar-stat-textbox input[type="text"],
+    .toolbar-stat-textbox .scroll-hide {
+        background-color: #666 !important; /* Medium gray */
+        color: #fff !important; /* White text */
+        border: 1px solid #555 !important;
+        font-weight: 500 !important;
+    }
+
     /* Responsive design for screens */
     @media (max-width: 1147px) {
         .toolbar-patreon, .toolbar-version { /* Hide both on smaller screens */
@@ -345,7 +354,9 @@ def create_interface(
 
     # Get the theme from settings
     current_theme = settings.get("gradio_theme", "default") # Use default if not found
-    block = gr.Blocks(css=css, title="FramePack Studio", theme=current_theme).queue()
+    block = gr.Blocks(theme=current_theme).queue()
+    block.css = css  # Store for later use in launch()
+    block.title = "FramePack Studio"  # Store for later use in launch()
 
     with block:
         with gr.Row(elem_id="fixed-toolbar"):
@@ -472,7 +483,6 @@ def create_interface(
                                             label="Start Frame (optional)",
                                             elem_classes="contain-image",
                                             image_mode="RGB",
-                                            show_download_button=False,
                                             show_label=True, # Keep label for clarity
                                             container=True
                                         )
@@ -499,10 +509,9 @@ def create_interface(
                                 end_frame_image_original = gr.Image(
                                     sources='upload',
                                     type="numpy",
-                                    label="End Frame (Optional)", 
+                                    label="End Frame (Optional)",
                                     elem_classes="contain-image",
                                     image_mode="RGB",
-                                    show_download_button=False,
                                     show_label=True,
                                     container=True
                                 )
@@ -674,7 +683,7 @@ def create_interface(
                             elem_classes="contain-image",
                             image_mode="RGB"
                         )
-                        result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
+                        result_video = gr.Video(label="Finished Frames", autoplay=True, height=256, loop=True)
                         progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
                         with gr.Row():

@@ -59,7 +59,15 @@ sys.modules.setdefault('torchvision.transforms.functional_tensor', functional_te
 
 # --- Local Application Imports ---
 from modules.settings import Settings
-from modules.toolbox.esrgan_core import ESRGANUpscaler
+
+# Conditional import for ESRGAN
+try:
+    from modules.toolbox.esrgan_core import ESRGANUpscaler
+    ESRGAN_AVAILABLE = True
+except ImportError as e:
+    ESRGAN_AVAILABLE = False
+    print(f"[WARNING] ESRGAN upscaling not available: {e}")
+
 from modules.toolbox.message_manager import MessageManager
 from modules.toolbox.rife_core import RIFEHandler
 from modules.toolbox.setup_ffmpeg import setup_ffmpeg
@@ -249,7 +257,7 @@ def _get_default_workflow_params():
     # Gets default values from filter settings and adds other op defaults
     params = TB_DEFAULT_FILTER_SETTINGS.copy()
     params.update({
-        "upscale_model": list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None,
+        "upscale_model": list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if (tb_processor.esrgan_upscaler and tb_processor.esrgan_upscaler.supported_models) else None,
         "upscale_factor": 2.0,
         "tile_size": 0,
         "enhance_face": False,
@@ -1198,13 +1206,17 @@ def tb_create_video_toolbox_ui():
                     gr.Markdown("Upscale video resolution using Real-ESRGAN.")
                 with gr.Row():
                     with gr.Column(scale=2):
+                        # Check if ESRGAN is available
+                        esrgan_choices = list(tb_processor.esrgan_upscaler.supported_models.keys()) if (tb_processor.esrgan_upscaler and tb_processor.esrgan_upscaler.supported_models) else []
+                        esrgan_default = esrgan_choices[0] if esrgan_choices else None
+
                         tb_upscale_model_select = gr.Dropdown(
-                            choices=list(tb_processor.esrgan_upscaler.supported_models.keys()),
-                            value=list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None,
+                            choices=esrgan_choices,
+                            value=esrgan_default,
                             label="ESRGAN Model",
-                            info="Select the Real-ESRGAN model."
+                            info="Select the Real-ESRGAN model." if esrgan_choices else "ESRGAN not available (BasicSR required)"
                         )
-                        default_model_key_init = list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None
+                        default_model_key_init = esrgan_default
                         initial_model_info_gr_val, initial_slider_gr_val, initial_denoise_gr_val = tb_get_model_info_and_update_scale_slider(default_model_key_init)
 
                         tb_selected_model_scale_display = gr.Textbox(

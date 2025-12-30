@@ -21,8 +21,14 @@ from tqdm.auto import tqdm
 from torchvision.transforms.functional import to_tensor, to_pil_image
 
 from modules.toolbox.rife_core import RIFEHandler
-from modules.toolbox.esrgan_core import ESRGANUpscaler
 from modules.toolbox.message_manager import MessageManager
+
+# Conditional import for ESRGAN
+try:
+    from modules.toolbox.esrgan_core import ESRGANUpscaler
+    ESRGAN_AVAILABLE = True
+except ImportError:
+    ESRGAN_AVAILABLE = False
 
 device_name_str = devicetorch.get(torch)
 
@@ -33,7 +39,17 @@ class VideoProcessor:
         self.message_manager = message_manager
         self.rife_handler = RIFEHandler(message_manager)
         self.device_obj = torch.device(device_name_str) # Store device_obj
-        self.esrgan_upscaler = ESRGANUpscaler(message_manager, self.device_obj)
+
+        # Only initialize ESRGAN if available
+        if ESRGAN_AVAILABLE:
+            try:
+                self.esrgan_upscaler = ESRGANUpscaler(message_manager, self.device_obj)
+            except (ImportError, NameError) as e:
+                print(f"[WARNING] Could not initialize ESRGAN: {e}")
+                self.esrgan_upscaler = None
+        else:
+            self.esrgan_upscaler = None
+
         self.settings = settings
         self.project_root = Path(__file__).resolve().parents[2]
         
@@ -1593,13 +1609,18 @@ class VideoProcessor:
         finally: gc.collect()
             
 
-    def tb_upscale_video(self, video_path, model_key: str, output_scale_factor_ui: float, 
-                         tile_size: int, enhance_face: bool, 
+    def tb_upscale_video(self, video_path, model_key: str, output_scale_factor_ui: float,
+                         tile_size: int, enhance_face: bool,
                          denoise_strength_ui: float | None,
                          use_streaming: bool, # New parameter from UI
                          progress=gr.Progress()):
         if video_path is None: self.message_manager.add_warning("No input video for upscaling."); return None
-        
+
+        # Check if ESRGAN is available
+        if self.esrgan_upscaler is None:
+            self.message_manager.add_error("ESRGAN upscaling is not available. BasicSR module is required.")
+            return None
+
         reader = None
         writer = None
         final_output_path = None
