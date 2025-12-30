@@ -354,7 +354,9 @@ def create_interface(
 
     # Get the theme from settings
     current_theme = settings.get("gradio_theme", "default") # Use default if not found
-    block = gr.Blocks(css=css, title="FramePack Studio", theme=current_theme).queue()
+    block = gr.Blocks(theme=current_theme).queue()
+    block.css = css  # Store for later use in launch()
+    block.title = "FramePack Studio"  # Store for later use in launch()
 
     with block:
         with gr.Row(elem_id="fixed-toolbar"):
