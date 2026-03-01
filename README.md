@@ -37,23 +37,13 @@ For information on installation, configuration, and usage, please visit our [doc
 
 Please see [this guide](https://docs.framepackstudio.com/docs/get_started/) on our documentation site to get FP-Studio installed.
 
-## LoRAs
+## Contributing 
 
-Add LoRAs to the /loras/ folder at the root of the installation. Select the LoRAs you wish to load and set the weights for each generation. Most Hunyuan LoRAs were originally trained for T2V, it's often helpful to run a T2V generation to ensure they're working before using input images.
+We would love your help building FramePack Studio! To make collaboration effective, please adhere to the following:
+- Keep Pull Requests Focused: Each Pull Request should address a single issue or add one specific feature. Please do not mix bug fixes, new features, and code refactoring in the same PR.
+- Target the develop Branch: All Pull Requests must be opened against the develop branch. PRs opened against the main branch will be closed.
+- Discuss Big Changes First: If you plan to work on a large feature or a significant refactor, please announce it first in the #contributors channel on our [Discord server](https://discord.com/invite/MtuM7gFJ3V). This helps us coordinate efforts and prevent duplicate work.
 
-NOTE: Slow lora loading is a known issue
-
-## Working with Timestamped Prompts
-
-You can create videos with changing prompts over time using the following syntax:
-
-```
-[0s: A serene forest with sunlight filtering through the trees ]
-[5s: A deer appears in the clearing ]
-[10s: The deer drinks from a small stream ]
-```
-
-Each timestamp defines when that prompt should start influencing the generation. The system will (hopefully) smoothly transition between prompts for a cohesive video.
 
 ## Credits
 

@@ -5,12 +5,13 @@ diffusers==0.33.1
 einops
 ffmpeg-python==0.2.0
 gradio==5.25.2
+huggingface_hub<0.35.1
 imageio-ffmpeg==0.4.8
 imageio==2.31.1
 jinja2>=3.1.2
 numpy==1.26.2
 opencv-contrib-python
-peft
+peft<0.18.0
 pillow==11.1.0
 requests==2.31.0
 safetensors
