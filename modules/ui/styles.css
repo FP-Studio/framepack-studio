@@ -117,6 +117,7 @@
         max-width: 150px;
     }
     #fixed-toolbar {
+        display: none !important; /* Hide entire toolbar on small screens */
         padding: 3px 6px;
         gap: 4px;
     }
