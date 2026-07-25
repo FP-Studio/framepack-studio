@@ -1302,13 +1302,15 @@ def worker(
                         ),
                     )
                 )
-                move_model_to_device_with_memory_preservation(
-                    studio_module.current_generator.transformer,
-                    target_device=gpu,
-                    preserved_memory_gb=settings.get("gpu_memory_preservation"),
-                )
-                if selected_loras:
-                    studio_module.current_generator.move_lora_adapters_to_device(gpu)
+
+            move_model_to_device_with_memory_preservation(
+                studio_module.current_generator.transformer,
+                target_device=gpu,
+                preserved_memory_gb=settings.get("gpu_memory_preservation"),
+            )
+
+            if selected_loras:
+                studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 

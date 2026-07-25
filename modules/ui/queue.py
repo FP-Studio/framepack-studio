@@ -289,8 +289,9 @@ def connect_queue_events(q, g, f, job_queue):
         outputs=[q["queue_controls_row"], q["confirm_cancel_row"]],
     )
     q["confirm_cancel_yes_btn"].click(
-        fn=lambda: clear_all_jobs()
-        + (gr.update(visible=True), gr.update(visible=False)),
+        fn=lambda: (
+            clear_all_jobs() + (gr.update(visible=True), gr.update(visible=False))
+        ),
         outputs=[
             q["queue_status"],
             q["queue_stats_display"],
