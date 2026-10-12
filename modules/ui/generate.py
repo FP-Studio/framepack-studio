@@ -143,6 +143,7 @@ def create_generate_ui(
                         label="Video Input",
                         height=420,
                         show_label=True,
+                        elem_id="video-input",
                     )
                     combine_with_source = gr.Checkbox(
                         label="Combine with source video",

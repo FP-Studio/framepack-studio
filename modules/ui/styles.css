@@ -11,6 +11,12 @@
     transform: scaleX(-1) !important;
 }
 
+/* Let the video input grow so the trim buttons are not cut off */
+#video-input {
+    height: auto !important;
+    min-height: 420px;
+}
+
 /* Target all images in the contain-image class and its children */
 .contain-image img,
 .contain-image > div > img,
@@ -20,6 +26,11 @@
     height: 60vh !important;
     max-height: 100% !important;
     max-width: 100% !important;
+}
+
+/* Let images fill the screen when the fullscreen button is used */
+.contain-image :fullscreen img {
+    height: 100vh !important;
 }
 
 /* Additional selectors to override Gradio defaults */

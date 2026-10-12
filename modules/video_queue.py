@@ -1432,9 +1432,12 @@ class VideoJobQueue:
 
                         # Combine the selected LoRAs with the current lora_loaded_names
                         # This ensures that all selected LoRAs are in lora_loaded_names
-                        combined_lora_names = list(
-                            set(current_lora_names + selected_loras)
-                        )
+                        # Selected LoRAs go first so their indices line up with lora_values
+                        combined_lora_names = selected_loras + [
+                            name
+                            for name in current_lora_names
+                            if name not in selected_loras
+                        ]
                         params["lora_loaded_names"] = combined_lora_names
 
                         logger.debug(

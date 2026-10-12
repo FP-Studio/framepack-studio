@@ -1730,6 +1730,7 @@ def worker(
                             output_path=combined_sequential_output_filename,
                             target_fps=input_video_fps_for_combine,
                             crf_value=current_crf,
+                            source_video_path=job_params["input_image"],
                         )
                     )
                     if combined_sequential_result_path:

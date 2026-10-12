@@ -17,6 +17,7 @@ requests==2.31.0
 safetensors
 scipy==1.12.0
 sentencepiece==0.2.0
+setuptools<81
 torchsde==0.2.6
 tqdm
 timm
