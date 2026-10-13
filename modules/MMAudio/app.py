@@ -1,9 +1,11 @@
+import logging
 from typing import Optional
 from pathlib import Path
 
 import torch
 
-from modules.MMAudio.mmaudio.eval_utils import (
+from mmaudio.data.av_utils import reencode_without_audio  # noqa: F401
+from mmaudio.eval_utils import (
     ModelConfig,
     all_model_cfg,
     generate as mmaudio_generate,
@@ -15,10 +17,11 @@ from mmaudio.model.networks import MMAudio, get_my_mmaudio
 from mmaudio.model.sequence_config import SequenceConfig
 from mmaudio.model.utils.features_utils import FeaturesUtils
 
-DEFAULT_AUDIO_NEGATIVE_PROMPT: list[str] = [
-    'music',
-    'noise',
-]
+logger = logging.getLogger(__name__)
+
+DEFAULT_AUDIO_NEGATIVE_PROMPT = 'music, noise'
+DEFAULT_AUDIO_STEPS = 25
+DEFAULT_AUDIO_CFG = 4.5
 
 # MMAudio Settings
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -56,14 +59,14 @@ def add_audio_to_video(
         prompt: str,
         audio_negative_prompt: str,
         audio_steps: int,
-        audio_cfg_strength: int,
-        duration: int,
+        audio_cfg_strength: float,
+        duration: float,
         audio_net: MMAudio,
         audio_feature_utils: FeaturesUtils,
         audio_seq_cfg: SequenceConfig,
         overwrite_orig_file: bool
-) -> Path:
-    """Generate and add audio to video using MMAudio"""
+) -> Optional[Path]:
+    """Generate and add audio to video using MMAudio. Returns None on failure."""
 
     try:
         rng = torch.Generator(device=device)
@@ -109,6 +112,6 @@ def add_audio_to_video(
         make_video(video_info, video_with_audio_path, audio, sampling_rate=audio_seq_cfg.sampling_rate)
 
         return video_with_audio_path
-    except Exception as e:
-        print(f"Error in audio generation: {e}")
-        return video_path
+    except Exception:
+        logger.exception("Error in audio generation")
+        return None

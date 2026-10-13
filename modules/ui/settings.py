@@ -10,7 +10,7 @@ def create_settings_ui(settings, get_latents_display_top, model_type_choices):
             save_metadata = gr.Checkbox(
                 label="Save Metadata",
                 info="Save to JSON file",
-                value=settings.get("save_metadata", 6),
+                value=settings.get("save_metadata", True),
             )
             gpu_memory_preservation = gr.Slider(
                 label="Memory Buffer for Stability (VRAM GB)",

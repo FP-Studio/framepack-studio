@@ -56,9 +56,10 @@ def create_interface(
 
     def create_latents_layout_update():
         display_top = get_latents_display_top()
-        return gr.update(visible=display_top), gr.update(
-            visible=not display_top, value=None if display_top else gr.update()
-        )
+        # Never pass gr.update() as a value: the Image shows "Error" for it
+        if display_top:
+            return gr.update(visible=True), gr.update(visible=False, value=None)
+        return gr.update(visible=False), gr.update(visible=True)
 
     def update_stats(*args):
         queue_status_data = update_queue_status_with_thumbnails()
@@ -104,8 +105,13 @@ def create_interface(
     except Exception:
         discord_svg_inline = "<span>Discord</span>"
 
+    with open("modules/ui/queue_actions.js", "r") as f:
+        head = f"<script>{f.read()}</script>"
+
     current_theme = settings.get("gradio_theme", "default")
-    block = gr.Blocks(css=css, title="FramePack Studio", theme=current_theme).queue()
+    block = gr.Blocks(
+        css=css, head=head, title="FramePack Studio", theme=current_theme
+    ).queue()
 
     with block:
         # --- Toolbar ---

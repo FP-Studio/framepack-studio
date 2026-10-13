@@ -5,15 +5,16 @@ import os
 import json
 import logging
 
-import sys as _sys
-
-_mmaudio_root = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "MMAudio")
+from modules.MMAudio.app import (
+    DEFAULT_AUDIO_CFG,
+    DEFAULT_AUDIO_NEGATIVE_PROMPT,
+    DEFAULT_AUDIO_STEPS,
+    add_audio_to_video,
+    all_model_cfg,
+    get_mmaudio_model,
+    load_video,
+    reencode_without_audio,
 )
-if _mmaudio_root not in _sys.path:
-    _sys.path.insert(0, _mmaudio_root)
-
-from mmaudio.eval_utils import all_model_cfg  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +60,24 @@ def create_outputs_ui(settings):
                         audio_prompt_chkbox = gr.Checkbox(label="Append")
                         audio_prompt_txt = gr.Textbox(label="Positive prompt")
 
-                    with gr.Blocks():
-                        audio_prompt_neg_chkbox = gr.Checkbox(label="Append")
-                        audio_prompt_neg_txt = gr.Textbox(label="Negative prompt")
+                    audio_prompt_neg_txt = gr.Textbox(
+                        label="Negative prompt", value=DEFAULT_AUDIO_NEGATIVE_PROMPT
+                    )
+                    audio_steps_slider = gr.Slider(
+                        label="Steps",
+                        minimum=1,
+                        maximum=100,
+                        step=1,
+                        value=DEFAULT_AUDIO_STEPS,
+                    )
+                    audio_cfg_slider = gr.Slider(
+                        label="CFG strength",
+                        minimum=1.0,
+                        maximum=10.0,
+                        step=0.1,
+                        value=DEFAULT_AUDIO_CFG,
+                        info="How closely the audio follows the prompt",
+                    )
 
                     gen_audio_btn = gr.Button("Generate audio")
                 audio_delete_btn = gr.Button("🗑️ Delete")
@@ -91,7 +107,8 @@ def create_outputs_ui(settings):
         "audio_delete_btn": audio_delete_btn,
         "audio_model_dropdown": audio_model_dropdown,
         "audio_prompt_chkbox": audio_prompt_chkbox,
-        "audio_prompt_neg_chkbox": audio_prompt_neg_chkbox,
+        "audio_steps_slider": audio_steps_slider,
+        "audio_cfg_slider": audio_cfg_slider,
     }
 
 
@@ -324,7 +341,8 @@ def connect_outputs_events(
         audio_prompt_txt: gr.Textbox,
         audio_prompt_neg_txt: gr.Textbox,
         audio_prompt_chkbox: gr.Checkbox,
-        audio_prompt_neg_chkbox: gr.Checkbox,
+        audio_steps: int,
+        audio_cfg: float,
     ) -> tuple[gr.State]:
         if not selected_prefix:
             return (
@@ -347,44 +365,24 @@ def connect_outputs_events(
                 None,  # selected_original_video_path_state
             )
 
-        def get_prompt(p: str, b: str) -> str:
-            if p == "":
-                return b
-            if b != "":
-                return b
-            return p
-
+        # The video prompt describes what the scene looks like, which is still
+        # a reasonable description of what it should sound like.
         prompt = metadata.get("prompt", "")
-
-        if audio_prompt_chkbox:
-            prompt += audio_prompt_txt
-        else:
-            prompt = get_prompt(metadata.get("prompt", ""), audio_prompt_txt)
-
-        negative_prompt = metadata.get("negative_prompt", "")
-
-        if audio_prompt_neg_chkbox:
-            negative_prompt += audio_prompt_neg_txt
-        else:
-            negative_prompt = get_prompt(
-                metadata.get("negative_prompt", ""), audio_prompt_neg_txt
+        if audio_prompt_txt:
+            prompt = (
+                f"{prompt}, {audio_prompt_txt}"
+                if audio_prompt_chkbox and prompt
+                else audio_prompt_txt
             )
 
-        # Append missing words from the DEFAULT_AUDIO_NEGATIVE_PROMPT list to the negative prompt
-        from modules.MMAudio.app import DEFAULT_AUDIO_NEGATIVE_PROMPT
+        # Don't reuse the video's negative prompt: it lists visual defects
+        # ("blurry", "low quality"), not sounds.
+        negative_prompt = audio_prompt_neg_txt or ""
 
-        missing_words = [
-            word
-            for word in DEFAULT_AUDIO_NEGATIVE_PROMPT
-            if word not in negative_prompt
-        ]
-        if missing_words:
-            if not negative_prompt.endswith(","):
-                negative_prompt += ", "
-            negative_prompt += ", ".join(missing_words)
-
-        steps = metadata.get("steps", 25)
-        cfg_strength = metadata.get("cfg", 1)
+        # Steps and CFG are the audio model's own; the video's "cfg" is
+        # usually 1, which turns MMAudio's guidance off.
+        steps = int(audio_steps)
+        cfg_strength = float(audio_cfg)
 
         model_config = None
 
@@ -398,8 +396,6 @@ def connect_outputs_events(
             f" steps:{str(steps)}\n"
             f" cfg:{str(cfg_strength)}"
         )
-
-        from modules.MMAudio.app import get_mmaudio_model, add_audio_to_video
 
         audio_net_model, features_utils, sequence_config = get_mmaudio_model(
             model_config
@@ -435,12 +431,7 @@ def connect_outputs_events(
         video_file_path, video_audio, duration = get_audio(selected_prefix)
 
         if video_audio is not None:
-            from mmaudio.eval_utils import load_video
-
             video_info = load_video(video_file_path, duration)
-
-            from mmaudio.data.av_utils import reencode_without_audio
-
             reencode_without_audio(video_info, video_file_path)
 
             logger.info(f"Deleted audio for video {str(video_file_path)}")
@@ -510,7 +501,8 @@ def connect_outputs_events(
             o["audio_prompt_txt"],
             o["audio_prompt_neg_txt"],
             o["audio_prompt_chkbox"],
-            o["audio_prompt_neg_chkbox"],
+            o["audio_steps_slider"],
+            o["audio_cfg_slider"],
         ],
         outputs=[
             o["selected_original_video_path_state"],

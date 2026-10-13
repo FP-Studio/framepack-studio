@@ -888,7 +888,7 @@ def connect_generate_events(g, s, q, f):
             flow_noise_camera_amount=flow_noise_camera_amount_arg,
             flow_noise_strength=flow_noise_strength_arg,
         )
-        new_seed_value = random.randint(0, 21474) if randomize_seed_arg else None
+        new_seed_value = random.randint(0, 2**31 - 1) if randomize_seed_arg else None
         if new_seed_value:
             logging.debug(f"Generated new seed for next job: {new_seed_value}")
         start_button_update_after_add = gr.update(value="🚀 Add to Queue")
@@ -1127,7 +1127,7 @@ def connect_generate_events(g, s, q, f):
                 current_job_args[0], current_job_args[6] = numpy_image, current_seed
                 process_with_queue_update(model_type_arg, *current_job_args)
                 if randomize_seed_arg:
-                    current_seed = random.randint(0, 21474)
+                    current_seed = random.randint(0, 2**31 - 1)
             except Exception as e:
                 logging.error(f"Error loading batch image {image_path}: {e}. Skipping.")
         logging.info("Batch processing complete.")
