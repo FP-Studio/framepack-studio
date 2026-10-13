@@ -49,3 +49,22 @@ FP_BASELINE=/tmp/baseline.pt .venv-cpu/bin/python -m pytest tests/cpu/test_basel
 
 Jobs run end to end in seconds at 128x128. Each sampler call is logged with
 the noise / initial latent it received.
+
+## Check the UI in a browser
+
+`ui_check.py` drives the running app like a user: model gating, arrows and
+keyframes on the timeline, a job through to the Library, a re-roll from a
+section, a video extension and presets.
+
+```bash
+VIRTUAL_ENV=.venv-cpu uv pip install playwright static-ffmpeg eva-decord
+.venv-cpu/bin/python -m playwright install chromium
+# Gradio's video player needs ffprobe; static-ffmpeg ships one
+export PATH="$(.venv-cpu/bin/python -c 'import static_ffmpeg.run as r, os; print(os.path.dirname(r.get_or_fetch_platform_executables_else_raise()[1]))'):$PATH"
+
+FP_REAL_DECORD=1 .venv-cpu/bin/python tests/cpu/studio_fake.py --port 7861 --server 127.0.0.1 &
+.venv-cpu/bin/python tests/cpu/ui_check.py --url http://127.0.0.1:7861/ --outputs outputs
+```
+
+Without `FP_REAL_DECORD=1`, decord is stubbed and video jobs fail; pass
+`--no-video` to skip that part.

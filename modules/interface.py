@@ -1,33 +1,68 @@
-import gradio as gr
+"""
+The app shell: header, the five tabs, and the status that ties them together.
+
+Create makes jobs, Queue runs them, Library holds the results, Tools edits
+them and Settings configures the app. One update_stats() feeds every status
+view (header pill, queue list, the "up next" rail on Create).
+"""
+
 import logging
+from html import escape
 
-from modules.version import APP_VERSION_DISPLAY
-
+import gradio as gr
 
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css
-from modules import DUMMY_LORA_NAME  # Import the constant
-
-from modules.toolbox_app import tb_processor
+from modules import DUMMY_LORA_NAME
 from modules.toolbox_app import (
     tb_create_video_toolbox_ui,
     tb_get_formatted_toolbar_stats,
+    tb_processor,
 )
-from modules.xy_plot_ui import xy_plot_process
-from modules.ui.generate import (
-    create_generate_ui,
-    connect_generate_events,
-    load_presets,
+from modules.ui.create import (
+    apply_startup,
+    connect_create_events,
+    create_create_ui,
+    render_up_next,
 )
+from modules.ui.library import connect_library_events, create_library_ui
 from modules.ui.queue import (
-    create_queue_ui,
     connect_queue_events,
+    create_queue_ui,
     update_queue_status_with_thumbnails,
 )
-from modules.ui.outputs import create_outputs_ui, connect_outputs_events
-from modules.ui.settings import create_settings_ui, connect_settings_events
+from modules.ui.settings import connect_settings_events, create_settings_ui
+from modules.version import APP_VERSION_DISPLAY
+from modules.video_queue import JobStatus
 
 logger = logging.getLogger(__name__)
-logger.info("Interface module loaded.")
+
+STATS_HTML = """
+<div id="toolbar-stats-container" class="sys-stats">
+  <div class="stat-card ram"><span class="stat-label">RAM</span><span class="stat-value"></span><div class="stat-bar"><span class="fill"></span></div></div>
+  <div class="stat-card vram"><span class="stat-label">VRAM</span><span class="stat-value"></span><div class="stat-bar"><span class="fill"></span></div></div>
+  <div class="stat-card gpu"><span class="stat-label">GPU</span><span class="stat-value"></span><div class="stat-bar"><span class="fill"></span></div></div>
+</div>
+"""
+
+
+def _read(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _status_pill(running, pending, finished):
+    if running:
+        text = "Running" + (f" · {pending} waiting" if pending else "")
+        state = "running"
+    elif pending:
+        text, state = f"{pending} waiting", "waiting"
+    else:
+        text = "Idle" + (f" · {finished} done" if finished else "")
+        state = "idle"
+    return f"<div class='status-pill {state}'><span class='dot'></span>{escape(text)}</div>"
 
 
 def create_interface(
@@ -43,70 +78,54 @@ def create_interface(
     lora_values: list = [],
     enumerate_lora_dir_fn=None,
 ):
-    """
-    Create the Gradio interface for the video generation application
-    """
+    css = make_progress_bar_css() + _read("modules/ui/styles.css")
+    head = f"<script>{_read('modules/ui/queue_actions.js')}</script>"
+    patreon_svg = _read("patreon.svg") or "Patreon"
+    discord_svg = _read("discord.svg") or "Discord"
 
-    # --- Helper Functions ---
-    def is_video_model(model_type_value):
-        return model_type_value in ["Video", "Video with Endframe", "Video F1"]
-
-    def get_latents_display_top():
-        return settings.get("latents_display_top", False)
-
-    def create_latents_layout_update():
-        display_top = get_latents_display_top()
-        # Never pass gr.update() as a value: the Image shows "Error" for it
-        if display_top:
-            return gr.update(visible=True), gr.update(visible=False, value=None)
-        return gr.update(visible=False), gr.update(visible=True)
-
-    def update_stats(*args):
-        queue_status_data = update_queue_status_with_thumbnails()
+    def counts():
         jobs = job_queue.get_all_jobs()
-        pending_count = sum(1 for j in jobs if str(j.status) == "JobStatus.PENDING")
-        running_count = sum(
-            1
-            for j in jobs
-            if str(j.status) in ["JobStatus.RUNNING", "JobStatus.CANCELLING"]
+        running = sum(
+            j.status in (JobStatus.RUNNING, JobStatus.CANCELLING) for j in jobs
         )
-        completed_count = sum(1 for j in jobs if str(j.status) == "JobStatus.COMPLETED")
-        total = max(1, pending_count + running_count + completed_count)
-        p_pct = int(round((pending_count / total) * 100))
-        r_pct = int(round((running_count / total) * 100))
-        c_pct = 100 - p_pct - r_pct
-        queue_stats_vars_css = f"""
-<style id="queue-stats-vars">
-#queue-stats{{
-  --qs-p: {p_pct}%;
-  --qs-r: {r_pct}%;
-  --qs-c: {c_pct}%;
-  --qs-label: 'Q: {pending_count} • R: {running_count} • C: {completed_count}';
-}}
-</style>
-"""
-        return queue_status_data, queue_stats_vars_css
+        pending = sum(j.status == JobStatus.PENDING for j in jobs)
+        finished = sum(
+            j.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
+            for j in jobs
+        )
+        return jobs, running, pending, finished
 
-    # --- UI Creation ---
-    with open("modules/ui/styles.css", "r") as f:
-        css = make_progress_bar_css() + f.read()
+    def update_stats(*_):
+        queue_html = update_queue_status_with_thumbnails()
+        jobs, running, pending, finished = counts()
+        summary = (
+            f"{running} running · {pending} waiting · {finished} finished"
+            if jobs
+            else ""
+        )
+        return (
+            queue_html,
+            _status_pill(running, pending, finished),
+            render_up_next(jobs, job_queue.current_job),
+            summary,
+        )
 
-    # Prepare Patreon SVG inline to ensure it renders regardless of webroot
-    try:
-        with open("patreon.svg", "r", encoding="utf-8") as pf:
-            patreon_svg_inline = pf.read()
-    except Exception:
-        patreon_svg_inline = "<span>Patreon</span>"
+    last_signature = {"value": None}
 
-    # Prepare Discord SVG inline to ensure it renders regardless of webroot
-    try:
-        with open("discord.svg", "r", encoding="utf-8") as df:
-            discord_svg_inline = df.read()
-    except Exception:
-        discord_svg_inline = "<span>Discord</span>"
+    def poll_stats():
+        """Timer tick: only re-render when something changed or a job is running."""
+        jobs, running, _, _ = counts()
+        signature = tuple((j.id, j.status, j.result) for j in jobs)
+        if signature == last_signature["value"] and not running:
+            return (gr.update(),) * 4
+        last_signature["value"] = signature
+        return update_stats()
 
-    with open("modules/ui/queue_actions.js", "r") as f:
-        head = f"<script>{f.read()}</script>"
+    def follow_current_job():
+        """If a job is running (e.g. after a page reload), attach the live preview."""
+        with job_queue.lock:
+            job = job_queue.current_job
+            return job.id if job else gr.update()
 
     current_theme = settings.get("gradio_theme", "default")
     block = gr.Blocks(
@@ -114,308 +133,143 @@ def create_interface(
     ).queue()
 
     with block:
-        # --- Toolbar ---
-        with gr.Row(elem_id="fixed-toolbar"):
-            with gr.Column(scale=1, min_width=250):
-                gr.HTML(
-                    f"""<div style="display: flex; align-items: center;"><h1 class='toolbar-title'>FP Studio</h1><p class='toolbar-version'>{APP_VERSION_DISPLAY}</p><p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>{patreon_svg_inline}</a></p><p class='toolbar-discord'><a href='https://discord.com/invite/MtuM7gFJ3V' target='_blank'>{discord_svg_inline}</a></p></div>"""
-                )
-            with gr.Column(scale=3, min_width=250, elem_id="toolbar-right-col"):
-                gr.HTML(
-                    """
-                    <div id='queue-stats' class='queue-stats'>
-                      <div class='queue-stats-bar'>
-                        <span class='seg pending'></span>
-                        <span class='seg running'></span>
-                        <span class='seg completed'></span>
-                      </div>
-                      <div class='queue-stats-labels'></div>
-                    </div>
-                    """
-                )
-            with gr.Column(scale=9, min_width=250, elem_id="toolbar-right-col"):
-                gr.HTML(
-                    """
-                    <div id="toolbar-stats-container" class="toolbar-stat-html">
-                      <div class="stats-stack">
-                        <div class='stat-card ram'>
-                          <span class='stat-label'>RAM</span>
-                          <span class='stat-value'>N/A</span>
-                          <div class='stat-bar'><span class='fill'></span></div>
-                        </div>
-                        <div class='stat-card vram'>
-                          <span class='stat-label'>VRAM</span>
-                          <span class='stat-value'>N/A</span>
-                          <div class='stat-bar'><span class='fill'></span></div>
-                        </div>
-                        <div class='stat-card gpu'>
-                          <span class='stat-label'>GPU</span>
-                          <span class='stat-value'>N/A</span>
-                          <div class='stat-bar'><span class='fill'></span></div>
-                        </div>
-                      </div>
-                    </div>
-                    """
-                )
-            queue_stats_vars = gr.HTML(
-                """
-                <style id="queue-stats-vars">
-                #queue-stats{
-                  --qs-p: 0%;
-                  --qs-r: 0%;
-                  --qs-c: 0%;
-                  --qs-label: 'Q: 0 • R: 0 • C: 0';
-                }
-                </style>
-                """,
-                elem_id="queue-stats-vars-wrapper",
+        with gr.Row(elem_id="app-header", equal_height=True):
+            gr.HTML(
+                f"<div class='brand'><span class='brand-name'>FramePack Studio</span>"
+                f"<span class='brand-version'>{APP_VERSION_DISPLAY}</span></div>",
+                elem_classes="header-brand",
+            )
+            header_status = gr.HTML(_status_pill(0, 0, 0), elem_classes="header-status")
+            gr.HTML(STATS_HTML, elem_classes="header-stats")
+            toolbar_stats_vars = gr.HTML("", elem_id="toolbar-stats-vars-wrapper")
+            gr.HTML(
+                f"<div class='header-links'>"
+                f"<a href='https://patreon.com/Colinu' target='_blank' title='Support on Patreon'>{patreon_svg}</a>"
+                f"<a href='https://discord.com/invite/MtuM7gFJ3V' target='_blank' title='Discord'>{discord_svg}</a>"
+                f"</div>",
+                elem_classes="header-links-wrap",
             )
 
-            toolbar_stats_vars = gr.HTML(
-                """
-                <style id="toolbar-stats-vars">
-                #toolbar-stats-container{
-                  --ram-fill: 0%;
-                  --ram-text: 'N/A';
-                  --vram-fill: 0%;
-                  --vram-text: 'N/A';
-                  --gpu-fill: 0%;
-                  --gpu-text: 'N/A';
-                }
-                </style>
-                """,
-                elem_id="toolbar-stats-vars-wrapper",
-            )
-
-        # --- Tabs ---
-        with gr.Tabs(elem_id="main_tabs") as main_tabs_component:
-            with gr.Tab("Generate", id="generate_tab"):
-                g = create_generate_ui(
-                    lora_names,
-                    default_prompt,
-                    DUMMY_LORA_NAME,
-                    get_latents_display_top,
-                    settings,
+        with gr.Tabs(elem_id="main_tabs") as main_tabs:
+            with gr.Tab("Create", id="create_tab"):
+                g = create_create_ui(
+                    lora_names, default_prompt, DUMMY_LORA_NAME, settings
                 )
-
             with gr.Tab("Queue", id="queue_tab"):
                 q = create_queue_ui()
-                q["queue_stats_display"] = queue_stats_vars
-
-            with gr.Tab("Outputs", id="outputs_tab"):
-                o = create_outputs_ui(settings)
-
-            with gr.Tab("Post-processing", id="toolbox_tab"):
-                toolbox_ui_layout, tb_target_video_input = tb_create_video_toolbox_ui()
-
+            with gr.Tab("Library", id="library_tab"):
+                lib = create_library_ui()
+            with gr.Tab("Tools", id="tools_tab"):
+                _, tools_video_input = tb_create_video_toolbox_ui()
             with gr.Tab("Settings", id="settings_tab"):
-                s = create_settings_ui(
-                    settings, get_latents_display_top, g["model_type"].choices
-                )
+                s = create_settings_ui(settings)
 
-        # --- Event Handlers ---
-        def check_for_current_job():
-            with job_queue.lock:
-                current_job = job_queue.current_job
-                if current_job:
-                    job_id = current_job.id
-                    result = current_job.result
-                    preview = (
-                        current_job.progress_data.get("preview")
-                        if current_job.progress_data
-                        else None
-                    )
-                    desc = (
-                        current_job.progress_data.get("desc", "")
-                        if current_job.progress_data
-                        else ""
-                    )
-                    html = (
-                        current_job.progress_data.get("html", "")
-                        if current_job.progress_data
-                        else ""
-                    )
-                    logging.info(
-                        f"Auto-check found current job {job_id}, triggering monitor_job"
-                    )
-                    return job_id, result, preview, preview, desc, html
-            return None, None, None, None, "", ""
-
-        def check_for_current_job_and_monitor():
-            job_id, result, preview, top_preview, desc, html = check_for_current_job()
-            queue_status_data, queue_stats_text = update_stats()
-            return (
-                job_id,
-                result,
-                preview,
-                top_preview,
-                desc,
-                html,
-                queue_status_data,
-                queue_stats_text,
-            )
-
-        def end_process_with_update():
-            end_process_fn()
-            queue_status_data, queue_stats_text = update_stats()
-            return (
-                queue_status_data,
-                queue_stats_text,
-                gr.update(value="Cancelling...", interactive=False),
-                gr.update(value=None),
-            )
-
-        def update_start_button_state(*args):
-            selected_model, input_video_value = args[-2], args[-1]
-            video_provided = input_video_value is not None
-            if is_video_model(selected_model) and not video_provided:
-                return gr.update(
-                    value="❌ Missing Video", interactive=False
-                ), gr.update(visible=True)
-            return gr.update(value="🚀 Add to Queue", interactive=True), gr.update(
-                visible=False
-            )
-
-        def apply_startup_settings():
-            startup_model_val = settings.get("startup_model_type", "None")
-            startup_preset_val = settings.get("startup_preset_name", None)
-            model_type_update = gr.update()
-            preset_dropdown_update = gr.update()
-            preset_name_textbox_update = gr.update()
-            ui_components_updates_list = [
-                gr.update() for _ in g.get("ui_components", [])
-            ]
-            if startup_model_val and startup_model_val != "None":
-                model_type_update = gr.update(value=startup_model_val)
-                presets_for_startup_model = load_presets(startup_model_val)
-                preset_dropdown_update = gr.update(choices=presets_for_startup_model)
-                if (
-                    startup_preset_val
-                    and startup_preset_val in presets_for_startup_model
-                ):
-                    preset_dropdown_update = gr.update(
-                        choices=presets_for_startup_model, value=startup_preset_val
-                    )
-                    preset_name_textbox_update = gr.update(value=startup_preset_val)
-                    # This logic needs to be handled carefully, as apply_preset is in generate.py
-                    # We will call it from there via the `functions` dict
-            latents_display_top_update = gr.update(value=get_latents_display_top())
-            return tuple(
-                [model_type_update, preset_dropdown_update, preset_name_textbox_update]
-                + ui_components_updates_list
-                + [latents_display_top_update]
-            )
-
-        # --- Connect Events ---
-        functions = {
-            "is_video_model": is_video_model,
-            "get_latents_display_top": get_latents_display_top,
-            "create_latents_layout_update": create_latents_layout_update,
-            "update_stats": update_stats,
-            "check_for_current_job": check_for_current_job,
-            "check_for_current_job_and_monitor": check_for_current_job_and_monitor,
-            "end_process_with_update": end_process_with_update,
-            "update_start_button_state": update_start_button_state,
-            "apply_startup_settings": apply_startup_settings,
+        stats_outputs = [
+            q["queue_status"],
+            header_status,
+            g["up_next"],
+            q["queue_summary"],
+        ]
+        f = {
             "process_fn": process_fn,
             "monitor_fn": monitor_fn,
             "end_process_fn": end_process_fn,
-            "xy_plot_process": xy_plot_process,
-            "job_queue": job_queue,
-            "settings": settings,
-            "DUMMY_LORA_NAME": DUMMY_LORA_NAME,
-            "block": block,
+            "update_stats": update_stats,
+            "stats_outputs": stats_outputs,
+            "follow_current_job": follow_current_job,
+            "follow_outputs": [g["current_job_id"]],
         }
-        connect_generate_events(g, s, q, functions)
-        connect_queue_events(q, g, functions, job_queue)
-        get_gallery_items_fn = connect_outputs_events(
-            o, tb_target_video_input, main_tabs_component
-        )
-        connect_settings_events(
-            s, g, settings, create_latents_layout_update, tb_processor
-        )
 
-        def refresh_loras(current_selected):
-            if enumerate_lora_dir_fn:
-                new_lora_names = enumerate_lora_dir_fn()
-                preserved = [
-                    name for name in (current_selected or []) if name in new_lora_names
-                ]
-                return gr.update(choices=new_lora_names, value=preserved)
-            return gr.update()
+        create_api = connect_create_events(g, f, settings, DUMMY_LORA_NAME)
+        connect_queue_events(q, f, job_queue)
+
+        def active_jobs():
+            return {
+                j.id
+                for j in job_queue.get_all_jobs()
+                if j.status
+                in (JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLING)
+            }
+
+        library_refresh, library_outputs = connect_library_events(
+            lib,
+            g,
+            create_api,
+            tools_video_input,
+            main_tabs,
+            settings,
+            lora_names,
+            active_jobs,
+        )
+        connect_settings_events(s, settings, tb_processor)
+
+        def refresh_loras(current):
+            if not enumerate_lora_dir_fn:
+                return gr.update()
+            names = enumerate_lora_dir_fn()
+            return gr.update(
+                choices=names, value=[n for n in current or [] if n in names]
+            )
 
         g["refresh_loras_button"].click(
             fn=refresh_loras, inputs=[g["lora_selector"]], outputs=[g["lora_selector"]]
         )
 
-        # General Connections
-        def initial_gallery_load():
-            items = get_gallery_items_fn()
-            return items, gr.update(value=[item[0] for item in items])
+        # Library refreshes whenever it is opened and when a job finishes
+        def on_tab_select(evt: gr.SelectData):
+            if evt.value == "Library":
+                return library_refresh()
+            return [gr.update()] * len(library_outputs)
 
-        block.load(
-            fn=initial_gallery_load, outputs=[o["gallery_items_state"], o["thumbs"]]
-        )
-        g["current_job_id"].change(
-            fn=monitor_fn,
-            inputs=[g["current_job_id"]],
-            outputs=[
-                g["result_video"],
-                g["preview_image"],
-                g["top_preview_image"],
-                g["progress_desc"],
-                g["progress_bar"],
-                g["start_button"],
-                g["end_button"],
-            ],
-        ).then(
-            fn=update_stats, outputs=[q["queue_status"], q["queue_stats_display"]]
-        ).then(
-            fn=update_start_button_state,
-            inputs=[g["model_type"], g["input_video"]],
-            outputs=[g["start_button"], g["video_input_required_message"]],
-        ).then(
-            fn=create_latents_layout_update,
-            outputs=[g["top_preview_row"], g["preview_image"]],
-        )
-        g["end_button"].click(
-            fn=end_process_with_update,
-            outputs=[
-                q["queue_status"],
-                q["queue_stats_display"],
-                g["end_button"],
-                g["current_job_id"],
-            ],
-        ).then(
-            fn=check_for_current_job_and_monitor,
-            outputs=[
-                g["current_job_id"],
-                g["result_video"],
-                g["preview_image"],
-                g["top_preview_image"],
-                g["progress_desc"],
-                g["progress_bar"],
-                q["queue_status"],
-                q["queue_stats_display"],
-            ],
-        ).then(
-            fn=create_latents_layout_update,
-            outputs=[g["top_preview_row"], g["preview_image"]],
+        main_tabs.select(
+            fn=on_tab_select, outputs=library_outputs, show_progress="hidden"
         )
 
-        main_toolbar_system_stats_timer = gr.Timer(2, active=True)
-        main_toolbar_system_stats_timer.tick(
-            fn=tb_get_formatted_toolbar_stats,
-            inputs=None,
-            outputs=[
-                toolbar_stats_vars,
-            ],
-        )
+        # ...and when the set of finished jobs changes, not on every new section
+        finished_seen = {"ids": None}
 
-        # Footer
-        with gr.Row(elem_id="footer"):
-            gr.HTML(
-                f"""<div style="text-align: center; padding: 20px; color: #666;"><div style="margin-top: 10px;"><span class="footer-version" style="margin: 0 10px; color: #666;">{APP_VERSION_DISPLAY}</span><a href="https://patreon.com/Colinu" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;" class="footer-patreon"><i class="fab fa-patreon"></i>Support on Patreon</a><a href="https://discord.gg/MtuM7gFJ3V" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;"><i class="fab fa-discord"></i> Discord</a><a href="https://github.com/colinurbs/FramePack-Studio" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;"><i class="fab fa-github"></i> GitHub</a></div></div>"""
+        def poll_library():
+            finished = frozenset(
+                j.id
+                for j in job_queue.get_all_jobs()
+                if j.status
+                in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
             )
+            if finished == finished_seen["ids"]:
+                return [gr.update()] * len(library_outputs)
+            finished_seen["ids"] = finished
+            return library_refresh()
+
+        timer = gr.Timer(2, active=True)
+        timer.tick(fn=tb_get_formatted_toolbar_stats, outputs=[toolbar_stats_vars])
+        timer.tick(fn=poll_stats, outputs=stats_outputs, show_progress="hidden")
+        timer.tick(fn=poll_library, outputs=library_outputs, show_progress="hidden")
+
+        # Startup: attach to a running job, apply the startup model/preset,
+        # then bring every derived view (motion gating, timeline, checks) in line.
+        block.load(fn=follow_current_job, outputs=[g["current_job_id"]]).then(
+            fn=update_stats, outputs=stats_outputs
+        ).then(
+            fn=library_refresh, outputs=library_outputs, show_progress="hidden"
+        ).then(
+            fn=lambda: apply_startup(settings, g),
+            outputs=[g["model"], g["source"], g["preset_dropdown"]],
+        ).then(
+            fn=create_api["on_setup_change"],
+            inputs=[g["model"], g["source"], g["preset_dropdown"]],
+            outputs=create_api["setup_outputs"],
+        ).then(
+            fn=create_api["canvas_value"],
+            inputs=create_api["canvas_inputs"],
+            outputs=[g["motion_canvas"]],
+        ).then(
+            fn=create_api["refresh_timeline"],
+            inputs=create_api["timeline_inputs"],
+            outputs=[g["timeline"]],
+        ).then(
+            fn=create_api["assess"],
+            inputs=create_api["feature_inputs"],
+            outputs=[g["checks"], g["start_button"]],
+        )
 
     return block

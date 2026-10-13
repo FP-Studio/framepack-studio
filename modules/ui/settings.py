@@ -1,265 +1,245 @@
+"""
+The Settings tab. Every change saves immediately.
+
+Each control is listed against the settings key it writes, so a control can
+never save under the wrong name (the old tab saved the startup model, preset
+and theme under their component names, so those settings never applied).
+"""
+
 import gradio as gr
 
-from modules.ui.generate import load_presets
+from modules.ui import presets
 from shared import LoraLoader, QuantizationFormat
 
+BUILT_IN_THEMES = [
+    "default",
+    "base",
+    "soft",
+    "glass",
+    "monochrome",
+    "origin",
+    "citrus",
+    "ocean",
+]
 
-def create_settings_ui(settings, get_latents_display_top, model_type_choices):
-    with gr.Row():
-        with gr.Column():
-            save_metadata = gr.Checkbox(
-                label="Save Metadata",
-                info="Save to JSON file",
-                value=settings.get("save_metadata", True),
-            )
-            gpu_memory_preservation = gr.Slider(
-                label="Memory Buffer for Stability (VRAM GB)",
-                minimum=1,
-                maximum=128,
-                step=0.1,
-                value=settings.get("gpu_memory_preservation", 6),
-                info="Increase reserve if you see computer freezes, stagnant generation, or super slow sampling steps (try 1G at a time). Otherwise smaller buffer is faster. (5.5 - 8.5 is a common range)",
-            )
-            mp4_crf = gr.Slider(
-                label="MP4 Compression",
-                minimum=0,
-                maximum=100,
-                step=1,
-                value=settings.get("mp4_crf", 16),
-                info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs.",
-            )
-            clean_up_videos = gr.Checkbox(
-                label="Clean up video files",
-                value=settings.get("clean_up_videos", True),
-                info="If checked, only the final video will be kept after generation.",
-            )
-            auto_cleanup_on_startup = gr.Checkbox(
-                label="Automatically clean up temp folders on startup",
-                value=settings.get("auto_cleanup_on_startup", False),
-                info="If checked, temporary files (inc. post-processing) will be cleaned up when the application starts.",
-            )
-            latents_display_top = gr.Checkbox(
-                label="Display Next Latents across top of interface",
-                value=get_latents_display_top(),
-                info="If checked, the Next Latents preview will be displayed across the top of the interface instead of in the right column.",
-            )
-            gr.Markdown("")
-            initial_startup_model_val = settings.get("startup_model_type", "None")
-            initial_startup_presets_choices_val = (
-                load_presets(initial_startup_model_val)
-                if initial_startup_model_val != "None"
-                else []
-            )
-            saved_preset = settings.get("startup_preset_name")
-            initial_startup_preset_value_val = (
-                saved_preset
-                if saved_preset in initial_startup_presets_choices_val
-                else None
-            )
-            startup_model_type_dropdown = gr.Dropdown(
-                label="Startup Model Type",
-                choices=["None"]
-                + [
-                    choice[0] for choice in model_type_choices if choice[0] != "XY Plot"
-                ],
-                value=initial_startup_model_val,
-                info="Select a model type to load on startup. 'None' to disable.",
-            )
-            startup_preset_name_dropdown = gr.Dropdown(
-                label="Startup Preset",
-                choices=initial_startup_presets_choices_val,
-                value=initial_startup_preset_value_val,
-                info="Select a preset for the startup model. Updates when Startup Model Type changes.",
-                interactive=True,
-            )
-            with gr.Accordion("System Prompt", open=False):
-                with gr.Row(equal_height=True):
-                    override_system_prompt = gr.Checkbox(
-                        label="Override System Prompt",
-                        value=settings.get("override_system_prompt", False),
-                        info="If checked, the system prompt template below will be used instead of the default one.",
-                        scale=1,
+STARTUP_CHOICES = [
+    ("Nothing — use the defaults", "None"),
+    ("Original", "Original"),
+    ("F1", "F1"),
+    ("Original, from a video", "Video"),
+    ("F1, from a video", "Video F1"),
+]
+
+
+def create_settings_ui(settings):
+    theme = settings.get("gradio_theme", "default")
+    themes = BUILT_IN_THEMES + ([theme] if theme not in BUILT_IN_THEMES else [])
+    startup_model = settings.get("startup_model_type", "None")
+    startup_presets = (
+        presets.load_presets(startup_model) if startup_model != "None" else []
+    )
+
+    with gr.Column(elem_id="settings-root"):
+        status = gr.Markdown("Changes save automatically.", elem_classes="field-note")
+        with gr.Row(equal_height=False):
+            with gr.Column():
+                with gr.Group(elem_classes="settings-card"):
+                    gr.Markdown("### Files", elem_classes="section-title")
+                    output_dir = gr.Textbox(
+                        label="Output folder",
+                        value=settings.get("output_dir"),
+                        max_lines=1,
                     )
-                    reset_system_prompt_btn = gr.Button("🔄 Reset", scale=0)
-                system_prompt_template = gr.Textbox(
-                    label="System Prompt Template",
-                    value=settings.get(
-                        "system_prompt_template",
-                        '{"template": "<|start_header_id|>system<|end_header_id|>\\n\\nDescribe the video by detailing the following aspects: 1. The main content and theme of the video.2. The color, shape, size, texture, quantity, text, and spatial relationships of the objects.3. Actions, events, behaviors temporal relationships, physical movement changes of the objects.4. background environment, light, style and atmosphere.5. camera angles, movements, and transitions used in the video:<|eot_id|><|start_header_id|>user<|end_header_id|>\\n\\n{}<|eot_id|>", "crop_start": 95}',
-                    ),
-                    lines=10,
-                    info="System prompt template used for video generation. Must be a valid JSON or Python dictionary string with 'template' and 'crop_start' keys.",
-                )
-            output_dir = gr.Textbox(
-                label="Output Directory",
-                value=settings.get("output_dir"),
-                placeholder="Path to save generated videos",
-            )
-            metadata_dir = gr.Textbox(
-                label="Metadata Directory",
-                value=settings.get("metadata_dir"),
-                placeholder="Path to save metadata files",
-            )
-            lora_dir = gr.Textbox(
-                label="LoRA Directory",
-                value=settings.get("lora_dir"),
-                placeholder="Path to LoRA models",
-            )
-            gradio_temp_dir = gr.Textbox(
-                label="Gradio Temporary Directory",
-                value=settings.get("gradio_temp_dir"),
-            )
-            auto_save = gr.Checkbox(
-                label="Auto-save settings",
-                value=settings.get("auto_save_settings", True),
-            )
-            gradio_themes = [
-                "default",
-                "base",
-                "soft",
-                "glass",
-                "mono",
-                "origin",
-                "citrus",
-                "monochrome",
-                "ocean",
-                "NoCrypt/miku",
-                "earneleh/paris",
-                "gstaff/xkcd",
-            ]
-            theme_dropdown = gr.Dropdown(
-                label="Theme",
-                choices=gradio_themes,
-                value=settings.get("gradio_theme", "default"),
-                info="Select the Gradio UI theme. Requires restart.",
-            )
-            with gr.Accordion("Experimental Settings", open=False):
-                gr.Markdown(
-                    "These settings are for advanced users. Changing them may affect the performance or functionality of the application."
-                )
-                lora_loader = gr.Dropdown(
-                    label="LoRA Loader",
-                    choices=[loader.value for loader in LoraLoader],
-                    value=settings.lora_loader.value,
-                    info="Select the LoRA loader to use. 'diffusers' for Diffusers format, 'lora_ready' for Kohya-ss format.",
-                    interactive=True,
-                )
+                    metadata_dir = gr.Textbox(
+                        label="Settings & thumbnails folder",
+                        value=settings.get("metadata_dir"),
+                        max_lines=1,
+                    )
+                    lora_dir = gr.Textbox(
+                        label="LoRA folder", value=settings.get("lora_dir"), max_lines=1
+                    )
+                    gradio_temp_dir = gr.Textbox(
+                        label="Temporary folder",
+                        value=settings.get("gradio_temp_dir"),
+                        max_lines=1,
+                    )
+                    save_metadata = gr.Checkbox(
+                        label="Save each job's settings next to the video",
+                        value=settings.get("save_metadata", True),
+                        info="Needed for “Use these settings” in the Library.",
+                    )
+                    save_section_latents = gr.Checkbox(
+                        label="Save section data for re-roll",
+                        value=settings.get("save_section_latents", True),
+                        info="A few MB per job. Needed to re-roll a job from a section later.",
+                    )
+                    clean_up_videos = gr.Checkbox(
+                        label="Keep only the final video",
+                        value=settings.get("clean_up_videos", True),
+                        info="Deletes the in-progress versions once a job finishes.",
+                    )
+                    auto_cleanup_on_startup = gr.Checkbox(
+                        label="Empty the temporary folder on startup",
+                        value=settings.get("auto_cleanup_on_startup", False),
+                    )
+                    with gr.Row():
+                        cleanup_btn = gr.Button(
+                            "Empty temporary folder now", size="sm", scale=0
+                        )
+                        cleanup_output = gr.Markdown("", elem_classes="field-note")
+                with gr.Group(elem_classes="settings-card"):
+                    gr.Markdown("### Video files", elem_classes="section-title")
+                    mp4_crf = gr.Slider(
+                        label="MP4 compression (CRF)",
+                        minimum=0,
+                        maximum=100,
+                        step=1,
+                        value=settings.get("mp4_crf", 16),
+                        info="Lower is higher quality and larger files. If videos come "
+                        "out black, try 16.",
+                    )
+            with gr.Column():
+                with gr.Group(elem_classes="settings-card"):
+                    gr.Markdown("### When the app starts", elem_classes="section-title")
+                    startup_model_type = gr.Dropdown(
+                        label="Open Create with",
+                        choices=STARTUP_CHOICES,
+                        value=startup_model,
+                    )
+                    startup_preset_name = gr.Dropdown(
+                        label="and this preset",
+                        choices=startup_presets,
+                        value=settings.get("startup_preset_name")
+                        if settings.get("startup_preset_name") in startup_presets
+                        else None,
+                    )
+                    gradio_theme = gr.Dropdown(
+                        label="Theme",
+                        choices=themes,
+                        value=theme,
+                        info="Takes effect after a restart.",
+                    )
+                with gr.Group(elem_classes="settings-card"):
+                    gr.Markdown("### Memory & speed", elem_classes="section-title")
+                    gpu_memory_preservation = gr.Slider(
+                        label="VRAM to keep free (GB)",
+                        minimum=1,
+                        maximum=128,
+                        step=0.1,
+                        value=settings.get("gpu_memory_preservation", 6),
+                        info="Raise it (1 GB at a time) if the computer freezes or steps "
+                        "crawl. Lower is faster. 5.5–8.5 is common.",
+                    )
+                    reuse_model_instance = gr.Checkbox(
+                        label="Keep the model loaded between jobs",
+                        value=settings.get("reuse_model_instance", False),
+                        info="Skips reloading when the model and LoRAs don't change.",
+                    )
+                    quantization_format = gr.Dropdown(
+                        label="Weight format",
+                        choices=[q.value for q in QuantizationFormat],
+                        value=settings.quantization_format.value,
+                        info="bf16 is the default and doesn't quantize. NF4 uses less "
+                        "memory. int8 doesn't work with FramePack's memory management.",
+                    )
+                    lora_loader = gr.Dropdown(
+                        label="LoRA loader",
+                        choices=[loader.value for loader in LoraLoader],
+                        value=settings.lora_loader.value,
+                        info="diffusers for Diffusers-format LoRAs, lora_ready for Kohya-ss.",
+                    )
+                with gr.Accordion("Text encoder system prompt", open=False):
+                    override_system_prompt = gr.Checkbox(
+                        label="Use my own system prompt",
+                        value=settings.get("override_system_prompt", False),
+                    )
+                    system_prompt_template = gr.Textbox(
+                        label="System prompt template",
+                        value=settings.get("system_prompt_template"),
+                        lines=8,
+                        info="A JSON or Python dict with 'template' and 'crop_start' keys.",
+                    )
+                    reset_system_prompt_btn = gr.Button("Reset to default", size="sm")
 
-                reuse_model_instance = gr.Checkbox(
-                    label="Reuse Model Instance",
-                    value=settings.get("reuse_model_instance", False),
-                    info="If checked, the model instance will be reused across generations to save reload time when no LoRA changes are detected and the same model is used. If unchecked, a new model instance will be created for each generation.",
-                )
-
-                gr.Markdown(
-                    """
-                    ---
-                    Quantization Format is used to reduce the memory footprint of the model weights. It is recommended to use the default format unless you have specific requirements.
-
-                    Supported formats:
-
-                    - `brain_floating_point_16bit`: This is the default. This does not quantize the model. 16-bit floating point format for brain models.
-                    - `normal_float_4bit`: NF4 format for quantization.
-                    - `integer_8bit`: 8-bit integer format for quantization. Does not work with base FramePack's memory management.
-
-                    If you are unsure, leave it as `DEFAULT`. If you encounter issues with quantization, you can set it to `NONE` to disable quantization.
-                    """
-                )
-                quantization_format = gr.Dropdown(
-                    label="Quantization Format",
-                    choices=[format.value for format in QuantizationFormat],
-                    value=settings.quantization_format.value,
-                    info="Select the quantization format for model weights.",
-                )
-            save_btn = gr.Button("💾 Save Settings")
-            cleanup_btn = gr.Button("🗑️ Clean Up Temporary Files")
-            status = gr.HTML("")
-            cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
-
-    return {
-        "save_metadata": save_metadata,
-        "gpu_memory_preservation": gpu_memory_preservation,
-        "mp4_crf": mp4_crf,
-        "clean_up_videos": clean_up_videos,
-        "auto_cleanup_on_startup": auto_cleanup_on_startup,
-        "latents_display_top": latents_display_top,
-        "startup_model_type_dropdown": startup_model_type_dropdown,
-        "startup_preset_name_dropdown": startup_preset_name_dropdown,
-        "override_system_prompt": override_system_prompt,
-        "reset_system_prompt_btn": reset_system_prompt_btn,
-        "system_prompt_template": system_prompt_template,
+    controls = {
         "output_dir": output_dir,
         "metadata_dir": metadata_dir,
         "lora_dir": lora_dir,
         "gradio_temp_dir": gradio_temp_dir,
-        "auto_save": auto_save,
-        "theme_dropdown": theme_dropdown,
-        "save_btn": save_btn,
-        "cleanup_btn": cleanup_btn,
-        "status": status,
-        "cleanup_output": cleanup_output,
-        "lora_loader": lora_loader,
+        "save_metadata": save_metadata,
+        "save_section_latents": save_section_latents,
+        "clean_up_videos": clean_up_videos,
+        "auto_cleanup_on_startup": auto_cleanup_on_startup,
+        "mp4_crf": mp4_crf,
+        "startup_model_type": startup_model_type,
+        "startup_preset_name": startup_preset_name,
+        "gradio_theme": gradio_theme,
+        "gpu_memory_preservation": gpu_memory_preservation,
         "reuse_model_instance": reuse_model_instance,
         "quantization_format": quantization_format,
+        "lora_loader": lora_loader,
+        "override_system_prompt": override_system_prompt,
+        "system_prompt_template": system_prompt_template,
+    }
+    return {
+        "controls": controls,
+        "status": status,
+        "cleanup_btn": cleanup_btn,
+        "cleanup_output": cleanup_output,
+        "reset_system_prompt_btn": reset_system_prompt_btn,
     }
 
 
-# we can avoid passing around settings object into here, as the Settings class is now a singleton. Remove this comment if done.
-def connect_settings_events(s, g, settings, create_latents_layout_update, tb_processor):
-    def save_settings_func(*args):
-        keys = list(s.keys())
-        values = dict(zip(keys, args))
-        try:
-            settings.save_settings(**values)
-            return "<p style='color:green;'>Settings saved successfully! Restart required for theme change.</p>"
-        except Exception as e:
-            return f"<p style='color:red;'>Error saving settings: {str(e)}</p>"
+LABELS = {
+    "output_dir": "Output folder",
+    "metadata_dir": "Settings & thumbnails folder",
+    "lora_dir": "LoRA folder",
+    "gradio_temp_dir": "Temporary folder",
+    "gradio_theme": "Theme (restart to apply)",
+}
 
-    def handle_individual_setting_change(key, value):
-        if settings.get("auto_save_settings"):
-            settings.set(key, value)
-            return f"<p style='color:blue;'>'{key}' auto-saved.</p>"
-        return f"<p style='color:gray;'>'{key}' changed (auto-save is off).</p>"
 
-    s["save_btn"].click(
-        fn=save_settings_func, inputs=list(s.values()), outputs=[s["status"]]
-    ).then(
-        fn=create_latents_layout_update,
-        outputs=[g["top_preview_row"], g["preview_image"]],
-    )
-    s["reset_system_prompt_btn"].click(
-        lambda: (settings.default_settings["system_prompt_template"], False),
-        outputs=[s["system_prompt_template"], s["override_system_prompt"]],
-    ).then(
-        lambda: handle_individual_setting_change(
-            "system_prompt_template",
-            settings.default_settings["system_prompt_template"],
+def connect_settings_events(s, settings, tb_processor):
+    def save(key, value):
+        settings.save_settings(**{key: value})
+        label = LABELS.get(key, key.replace("_", " ").capitalize())
+        return f"Saved: {label}."
+
+    for key, component in s["controls"].items():
+        event = (
+            component.blur if isinstance(component, gr.Textbox) else component.change
+        )
+        event(
+            fn=lambda value, key=key: save(key, value),
+            inputs=[component],
+            outputs=[s["status"]],
+            show_progress="hidden",
+        )
+
+    s["controls"]["startup_model_type"].change(
+        fn=lambda model_type: gr.update(
+            choices=presets.load_presets(model_type) if model_type != "None" else [],
+            value=None,
         ),
-        outputs=[s["status"]],
-    ).then(
-        lambda: handle_individual_setting_change("override_system_prompt", False),
-        outputs=[s["status"]],
+        inputs=[s["controls"]["startup_model_type"]],
+        outputs=[s["controls"]["startup_preset_name"]],
+    )
+
+    def reset_system_prompt():
+        default = settings.default_settings["system_prompt_template"]
+        settings.save_settings(
+            system_prompt_template=default, override_system_prompt=False
+        )
+        return default, False, "Saved: system prompt reset to default."
+
+    s["reset_system_prompt_btn"].click(
+        fn=reset_system_prompt,
+        outputs=[
+            s["controls"]["system_prompt_template"],
+            s["controls"]["override_system_prompt"],
+            s["status"],
+        ],
     )
     s["cleanup_btn"].click(
         fn=tb_processor.tb_clear_temporary_files, outputs=[s["cleanup_output"]]
-    )
-
-    for key, comp in s.items():
-        if isinstance(comp, (gr.Checkbox, gr.Slider, gr.Dropdown, gr.Textbox)):
-            event = comp.change if not isinstance(comp, gr.Textbox) else comp.blur
-            event(
-                fn=lambda v, k=key: handle_individual_setting_change(k, v),
-                inputs=[comp],
-                outputs=[s["status"]],
-            )
-
-    s["latents_display_top"].change(
-        fn=lambda v: create_latents_layout_update(),
-        inputs=[s["latents_display_top"]],
-        outputs=[g["top_preview_row"], g["preview_image"]],
-    )
-    s["startup_model_type_dropdown"].change(
-        fn=lambda v: gr.update(choices=load_presets(v), value=None),
-        inputs=[s["startup_model_type_dropdown"]],
-        outputs=[s["startup_preset_name_dropdown"]],
     )

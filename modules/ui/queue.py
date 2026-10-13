@@ -5,7 +5,6 @@ import json
 from modules.video_queue import JobStatus
 from modules.ui.template_loader import (
     render_thumbnail_html,
-    get_queue_documentation,
     render_queue_row,
     render_queue,
 )
@@ -175,44 +174,44 @@ def update_queue_status_with_thumbnails():
 
 
 def create_queue_ui():
-    with gr.Row():
-        with gr.Column():
-            with gr.Row() as queue_controls_row:
-                refresh_button = gr.Button("🔄 Refresh Queue")
-                load_queue_button = gr.Button("▶️ Resume Queue")
-                queue_export_button = gr.Button("📦 Export Queue")
-                clear_complete_button = gr.Button(
-                    "🧹 Clear Completed Jobs", variant="secondary"
-                )
-                clear_queue_button = gr.Button("❌ Cancel Queued Jobs", variant="stop")
+    with gr.Column(elem_id="queue-root"):
+        with gr.Row(elem_classes="toolbar-row") as queue_controls_row:
+            queue_summary = gr.Markdown("", elem_classes="field-note")
+            load_queue_button = gr.Button("Resume saved queue", size="sm", scale=0)
+            clear_complete_button = gr.Button("Clear finished", size="sm", scale=0)
+            clear_queue_button = gr.Button(
+                "Cancel all waiting…", size="sm", variant="stop", scale=0
+            )
+        with gr.Row(visible=False, elem_classes="inline-form") as confirm_cancel_row:
+            gr.Markdown("Cancel every job that's waiting? The running job keeps going.")
+            confirm_cancel_yes_btn = gr.Button("Cancel them", variant="stop", scale=0)
+            confirm_cancel_no_btn = gr.Button("Keep them", scale=0)
+        queue_status = gr.HTML(render_queue([]), elem_id="queue-list")
+        # Bridge for the per-row buttons (see queue_actions.js). Hidden with CSS,
+        # not visible=False, so the elements stay in the page.
+        queue_action_input = gr.Textbox(
+            elem_id="queue-action-input", elem_classes="bridge", show_label=False
+        )
+        queue_action_trigger = gr.Button(
+            "Queue action", elem_id="queue-action-trigger", elem_classes="bridge"
+        )
+        with gr.Accordion("Import or export a queue", open=False):
+            gr.Markdown(
+                "Export saves every job and its input images to a zip in the "
+                "output folder. Import adds the jobs from a saved .json or .zip.",
+                elem_classes="field-note",
+            )
             with gr.Row():
+                queue_export_button = gr.Button("Export queue", scale=0)
                 import_queue_file = gr.File(
-                    label="Import Queue",
+                    label="Import queue",
                     file_types=[".json", ".zip"],
                     type="filepath",
-                    visible=True,
-                    elem_classes="short-import-box",
+                    height=90,
                 )
-            with gr.Row(visible=False) as confirm_cancel_row:
-                gr.Markdown("### Are you sure you want to cancel all pending jobs?")
-                confirm_cancel_yes_btn = gr.Button("❌ Yes, Cancel All", variant="stop")
-                confirm_cancel_no_btn = gr.Button("↩️ No, Go Back")
-            with gr.Row():
-                # Create custom queue HTML component
-                queue_status = gr.HTML(
-                    render_queue([]),  # Start with empty queue
-                    label="Job Queue",
-                )
-            # Hidden bridge components for per-item queue actions
-            queue_action_input = gr.Textbox(visible=False, elem_id="queue-action-input")
-            queue_action_trigger = gr.Button(
-                "Queue Action", visible=False, elem_id="queue-action-trigger"
-            )
-            with gr.Accordion("Queue Documentation", open=False):
-                gr.Markdown(get_queue_documentation())
     return {
         "queue_status": queue_status,
-        "refresh_button": refresh_button,
+        "queue_summary": queue_summary,
         "load_queue_button": load_queue_button,
         "queue_export_button": queue_export_button,
         "clear_complete_button": clear_complete_button,
@@ -227,58 +226,31 @@ def create_queue_ui():
     }
 
 
-def connect_queue_events(q, g, f, job_queue):
-    def clear_all_jobs():
-        job_queue.clear_queue()
-        return f["update_stats"]()
+def connect_queue_events(q, f, job_queue):
+    stats_outputs = f["stats_outputs"]
 
-    def clear_completed_jobs():
-        job_queue.clear_completed_jobs()
-        return f["update_stats"]()
+    def run(action):
+        def handler(*args):
+            action(*args)
+            return f["update_stats"]()
 
-    def load_queue_from_json():
-        job_queue.load_queue_from_json()
-        return f["update_stats"]()
-
-    def import_queue_from_file(file_path):
-        if file_path:
-            job_queue.load_queue_from_json(file_path)
-        return f["update_stats"]()
-
-    def export_queue_to_zip():
-        job_queue.export_queue_to_zip()
-        return f["update_stats"]()
+        return handler
 
     def handle_queue_action(action_json):
-        """
-        Handle per-item queue actions sent from the custom HTML (cancel/remove).
-        Expects a JSON string: {"action": "cancel"|"remove", "job_id": "<id>"}
-        """
+        """Per-row cancel/remove from the queue HTML: {"action", "job_id"}."""
         try:
             data = json.loads(action_json) if action_json else {}
-            action = data.get("action")
-            job_id = data.get("job_id")
-            if not job_id or not action:
-                return f["update_stats"]()
-            if action == "cancel":
+            action, job_id = data.get("action"), data.get("job_id")
+            if action == "cancel" and job_id:
                 job_queue.cancel_job(job_id)
-            elif action == "remove":
-                # remove is allowed for completed/failed/cancelled jobs
+            elif action == "remove" and job_id:
                 job_queue.remove_job(job_id)
         except Exception as e:
             logging.error(f"Queue action error: {e}")
         return f["update_stats"]()
 
-    q["refresh_button"].click(
-        fn=f["update_stats"],
-        inputs=[],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
-    )
-    # Bridge: trigger from custom HTML to perform per-item actions and refresh
     q["queue_action_trigger"].click(
-        fn=handle_queue_action,
-        inputs=[q["queue_action_input"]],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
+        fn=handle_queue_action, inputs=[q["queue_action_input"]], outputs=stats_outputs
     )
     q["clear_queue_button"].click(
         fn=lambda: (gr.update(visible=False), gr.update(visible=True)),
@@ -289,58 +261,31 @@ def connect_queue_events(q, g, f, job_queue):
         outputs=[q["queue_controls_row"], q["confirm_cancel_row"]],
     )
     q["confirm_cancel_yes_btn"].click(
-        fn=lambda: clear_all_jobs()
-        + (gr.update(visible=True), gr.update(visible=False)),
-        outputs=[
-            q["queue_status"],
-            q["queue_stats_display"],
-            q["queue_controls_row"],
-            q["confirm_cancel_row"],
-        ],
+        fn=run(lambda: job_queue.clear_queue()), outputs=stats_outputs
+    ).then(
+        fn=lambda: (gr.update(visible=True), gr.update(visible=False)),
+        outputs=[q["queue_controls_row"], q["confirm_cancel_row"]],
     )
     q["clear_complete_button"].click(
-        fn=clear_completed_jobs,
-        inputs=[],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
+        fn=run(lambda: job_queue.clear_completed_jobs()), outputs=stats_outputs
     )
-    q["queue_export_button"].click(
-        fn=export_queue_to_zip,
-        inputs=[],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
-    )
+
+    def export_queue():
+        path = job_queue.export_queue_to_zip()
+        if path:
+            gr.Info(f"Queue exported to {path}")
+        return f["update_stats"]()
+
+    q["queue_export_button"].click(fn=export_queue, outputs=stats_outputs)
     q["load_queue_button"].click(
-        fn=load_queue_from_json,
-        inputs=[],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
-    ).then(
-        fn=f["check_for_current_job"],
-        outputs=[
-            g["current_job_id"],
-            g["result_video"],
-            g["preview_image"],
-            g["top_preview_image"],
-            g["progress_desc"],
-            g["progress_bar"],
-        ],
-    ).then(
-        fn=f["create_latents_layout_update"],
-        outputs=[g["top_preview_row"], g["preview_image"]],
-    )
-    q["import_queue_file"].change(
-        fn=import_queue_from_file,
-        inputs=[q["import_queue_file"]],
-        outputs=[q["queue_status"], q["queue_stats_display"]],
-    ).then(
-        fn=f["check_for_current_job"],
-        outputs=[
-            g["current_job_id"],
-            g["result_video"],
-            g["preview_image"],
-            g["top_preview_image"],
-            g["progress_desc"],
-            g["progress_bar"],
-        ],
-    ).then(
-        fn=f["create_latents_layout_update"],
-        outputs=[g["top_preview_row"], g["preview_image"]],
-    )
+        fn=run(lambda: job_queue.load_queue_from_json()), outputs=stats_outputs
+    ).then(fn=f["follow_current_job"], outputs=f["follow_outputs"])
+
+    def import_queue(path):
+        if path:
+            job_queue.load_queue_from_json(path)
+        return f["update_stats"]()
+
+    q["import_queue_file"].upload(
+        fn=import_queue, inputs=[q["import_queue_file"]], outputs=stats_outputs
+    ).then(fn=f["follow_current_job"], outputs=f["follow_outputs"])

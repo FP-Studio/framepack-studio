@@ -1,0 +1,40 @@
+{
+  "name": "gradio_motioncanvas",
+  "version": "0.3.19",
+  "description": "Gradio UI packages",
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "private": false,
+  "main_changeset": true,
+  "exports": {
+    ".": {
+      "gradio": "./Index.svelte",
+      "svelte": "./dist/Index.svelte",
+      "types": "./dist/Index.svelte.d.ts"
+    },
+    "./example": {
+      "gradio": "./Example.svelte",
+      "svelte": "./dist/Example.svelte",
+      "types": "./dist/Example.svelte.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@gradio/atoms": "0.15.2",
+    "@gradio/icons": "0.12.0",
+    "@gradio/statustracker": "0.10.9",
+    "@gradio/utils": "0.10.2"
+  },
+  "devDependencies": {
+    "@gradio/preview": "0.13.0"
+  },
+  "peerDependencies": {
+    "svelte": "^4.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gradio-app/gradio.git",
+    "directory": "js/simpletextbox"
+  }
+}

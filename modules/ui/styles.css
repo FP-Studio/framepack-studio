@@ -1,778 +1,772 @@
-.short-import-box, .short-import-box > div {
-    min-height: 40px !important;
-    height: 40px !important;
-}
-/* Image container styling - more aggressive approach */
-.contain-image, .contain-image > div, .contain-image > div > img {
-    object-fit: contain !important;
+/* FramePack Studio styles.
+ *
+ * Colours come from Gradio's theme variables, so light/dark and the theme
+ * setting keep working. The few colours Gradio has no variable for (status
+ * states, warnings) are tokens below, with dark-mode values under .dark.
+ * Avoid !important unless Gradio sets the property inline.
+ */
+
+/* Aliases of Gradio variables. Declared on .gradio-container, not :root, so
+   they resolve inside body.dark and pick up the dark values. */
+.gradio-container {
+  --fps-gap: 12px;
+  --fps-radius: var(--block-radius, 8px);
+  --fps-muted: var(--body-text-color-subdued);
+  --fps-surface: var(--background-fill-primary);
+  --fps-surface-2: var(--background-fill-secondary);
+  --fps-line: var(--border-color-primary);
+  --fps-accent: var(--color-accent);
+  --fps-accent-soft: var(--color-accent-soft);
 }
 
-#non-mirrored-video {
-    transform: scaleX(-1) !important;
+:root {
+  --fps-ok: #15803d;
+  --fps-ok-soft: rgba(21, 128, 61, 0.12);
+  --fps-run: #2563eb;
+  --fps-run-soft: rgba(37, 99, 235, 0.12);
+  --fps-warn: #a16207;
+  --fps-warn-soft: rgba(202, 138, 4, 0.12);
+  --fps-bad: #b91c1c;
+  --fps-bad-soft: rgba(185, 28, 28, 0.1);
+}
+
+.dark {
+  --fps-ok: #4ade80;
+  --fps-ok-soft: rgba(74, 222, 128, 0.14);
+  --fps-run: #60a5fa;
+  --fps-run-soft: rgba(96, 165, 250, 0.16);
+  --fps-warn: #facc15;
+  --fps-warn-soft: rgba(250, 204, 21, 0.12);
+  --fps-bad: #f87171;
+  --fps-bad-soft: rgba(248, 113, 113, 0.14);
+}
+
+/* ------------------------------------------------------------------ header */
+
+#app-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: nowrap;
+  margin: calc(-1 * var(--size-4, 16px)) calc(-1 * var(--size-4, 16px)) 4px;
+  padding: 8px var(--size-4, 16px);
+  background: var(--fps-surface);
+  border-bottom: 1px solid var(--fps-line);
+}
+
+#app-header > .block {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+#app-header .html-container {
+  padding: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.brand-name {
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--body-text-color);
+}
+
+.brand-version {
+  font-size: 0.75rem;
+  color: var(--fps-muted);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 550;
+  white-space: nowrap;
+  background: var(--fps-surface-2);
+  color: var(--fps-muted);
+}
+
+.status-pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status-pill.running {
+  background: var(--fps-run-soft);
+  color: var(--fps-run);
+}
+
+.status-pill.running .dot {
+  animation: fps-pulse 1.4s ease-in-out infinite;
+}
+
+.status-pill.waiting {
+  background: var(--fps-warn-soft);
+  color: var(--fps-warn);
+}
+
+@keyframes fps-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-pill.running .dot {
+    animation: none;
+  }
+}
+
+#app-header > .header-stats {
+  flex: 1 1 auto;
+}
+
+.sys-stats {
+  display: flex;
+  gap: 14px;
+  justify-content: flex-end;
+}
+
+.sys-stats .stat-card {
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 6px;
+  align-items: baseline;
+  min-width: 108px;
+  font-size: 0.72rem;
+  color: var(--fps-muted);
+}
+
+.sys-stats .stat-label {
+  font-weight: 600;
+}
+
+.sys-stats .stat-value::after {
+  font-variant-numeric: tabular-nums;
+  color: var(--body-text-color);
+}
+
+#toolbar-stats-container .ram .stat-value::after {
+  content: var(--ram-text, "–");
+}
+#toolbar-stats-container .vram .stat-value::after {
+  content: var(--vram-text, "–");
+}
+#toolbar-stats-container .gpu .stat-value::after {
+  content: var(--gpu-text, "–");
+}
+
+.sys-stats .stat-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  margin-top: 3px;
+  border-radius: 2px;
+  background: var(--fps-surface-2);
+  overflow: hidden;
+}
+
+.sys-stats .stat-bar .fill {
+  display: block;
+  height: 100%;
+  background: var(--fps-muted);
+}
+
+#toolbar-stats-container .ram .fill {
+  width: var(--ram-fill, 0%);
+}
+#toolbar-stats-container .vram .fill {
+  width: var(--vram-fill, 0%);
+}
+#toolbar-stats-container .gpu .fill {
+  width: var(--gpu-fill, 0%);
+}
+
+#toolbar-stats-vars-wrapper {
+  display: none;
+}
+
+.header-links {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.header-links a {
+  display: inline-flex;
+  opacity: 0.75;
+}
+
+.header-links a:hover {
+  opacity: 1;
+}
+
+.header-links-wrap {
+  overflow: visible !important; /* Gradio sets overflow inline */
+}
+
+/* The badge SVGs have no viewBox, so keep their natural 28px size */
+.header-links svg {
+  display: block;
+}
+
+@media (max-width: 900px) {
+  #app-header > .header-stats,
+  .header-links-wrap {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------ shared bits */
+
+.section-title h3,
+.section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.field-note,
+.field-note p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--fps-muted);
+}
+
+.field-note.right {
+  text-align: right;
+  padding: 4px 12px 8px;
+}
+
+.field-note.warn p {
+  margin: 4px 0;
+  padding: 7px 10px;
+  border-left: 3px solid var(--fps-warn);
+  border-radius: 4px;
+  background: var(--fps-warn-soft);
+  color: var(--body-text-color);
+}
+
+.empty-state {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--fps-muted);
+}
+
+.toolbar-row {
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-form {
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  background: var(--fps-surface-2);
+}
+
+.inline-form p {
+  margin: 0;
+}
+
+/* The per-row queue buttons talk to Python through these (queue_actions.js) */
+.bridge {
+  display: none !important;
+}
+
+/* Segmented radios: Model and Start from. Target the options wrapper, not
+   Gradio's loading overlay, which also has the class "wrap". */
+.segmented [data-testid="block-info"] + .wrap {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--fps-surface-2);
+}
+
+.segmented label {
+  margin: 0;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.segmented label input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label.selected {
+  background: var(--fps-surface);
+  color: var(--body-text-color);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.segmented label:focus-within {
+  outline: 2px solid var(--fps-accent);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------------ create */
+
+#create-root {
+  gap: 20px;
+  align-items: flex-start;
+}
+
+#create-main {
+  gap: var(--fps-gap);
+}
+
+#create-rail {
+  position: sticky;
+  top: 64px;
+  gap: 10px;
+}
+
+.setup-bar {
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  background: var(--fps-surface);
+}
+
+.setup-bar > .form {
+  flex-wrap: nowrap;
+  gap: 16px;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+.setup-bar > .form,
+.setup-bar > .form > .block,
+.setup-bar > .block,
+.setup-bar .preset-col > .block {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  background: none;
+}
+
+.setup-bar > .form > .block {
+  padding: 0 2px;
+  overflow: visible !important; /* Gradio sets overflow inline; it clips the label */
+}
+
+.preset-col {
+  gap: 6px;
+}
+
+.preset-actions {
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.preset-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.frames-row {
+  gap: var(--fps-gap);
+}
+
+.frame-input img {
+  object-fit: contain;
 }
 
 /* Let the video input grow so the trim buttons are not cut off */
 #video-input {
-    height: auto !important;
-    min-height: 420px;
+  height: auto !important;
+  min-height: 280px;
 }
 
-/* Target all images in the contain-image class and its children */
-.contain-image img,
-.contain-image > div > img,
-.contain-image * img {
-    object-fit: contain !important;
-    width: 100% !important;
-    height: 60vh !important;
-    max-height: 100% !important;
-    max-width: 100% !important;
+.prompt-tools {
+  gap: 8px;
+  margin-top: -4px;
 }
 
-/* Let images fill the screen when the fullscreen button is used */
-.contain-image :fullscreen img {
-    height: 100vh !important;
+.motion-group {
+  padding: 12px;
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  background: var(--fps-surface);
 }
 
-/* Additional selectors to override Gradio defaults */
-.gradio-container img,
-.gradio-container .svelte-1b5oq5x,
-.gradio-container [data-testid="image"] img {
-    object-fit: contain !important;
+.motion-group > .block {
+  border: none;
+  box-shadow: none;
 }
 
-/* Toolbar styling */
-#fixed-toolbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;               /* avoid 100vw which can cause horizontal overflow */
-    box-sizing: border-box;    /* include padding in width */
-    z-index: 1000;
-    background: #333;
-    color: #fff;
-    padding: 0px 10px; /* Reduced top/bottom padding */
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    overflow-x: hidden;        /* ensure no horizontal scroll due to tight right group */
+.shot-group .field-note.right {
+  background: var(--fps-surface);
 }
 
-/* Responsive toolbar title */
-.toolbar-title {
-    font-size: 1.4rem;
-    margin: 0;
-    color: white;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+/* Rail */
+.rail-card {
+  border-radius: var(--fps-radius);
 }
 
-/* Toolbar Patreon link */
-.toolbar-patreon, .toolbar-discord {
-    margin: 0 0 0 20px;
-    color: white;
-    font-size: 0.9rem;
-    white-space: nowrap;
-    display: inline-block;
-}
-.toolbar-patreon a, .toolbar-discord a {
-    color: white;
-    text-decoration: none;
-}
-.toolbar-patreon a:hover, .toolbar-discord a:hover {
-    text-decoration: underline;
+.progress-desc p {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 0.85rem;
+  color: var(--fps-muted);
 }
 
-/* Normalize toolbar icon size */
-.toolbar-patreon svg, .toolbar-discord svg {
-    height: 30px;
-    vertical-align: middle;
+.live-preview img {
+  object-fit: contain;
 }
 
-/* Toolbar Version number */
-.toolbar-version {
-    margin: 0 15px; /* Space around version */
-    color: white;
-    font-size: 0.8rem;
-    white-space: nowrap;
-    display: inline-block;
+/* Let the live preview fill the screen when its fullscreen button is used */
+.live-preview :fullscreen img {
+  height: 100vh;
 }
 
-/* Responsive design for screens */
-@media (max-width: 1147px) {
-    .toolbar-patreon, .toolbar-discord, .toolbar-version { /* Hide both on smaller screens */
-        display: none;
-    }
-    .footer-patreon, .footer-version { /* Show both in footer on smaller screens */
-        display: inline-block !important; /* Ensure they are shown */
-    }
-    #fixed-toolbar {
-        gap: 4px !important; /* Reduce gap for screens <= 1024px */
-    }
-    #fixed-toolbar > div:first-child { /* Target the first gr.Column (Title) */
-        min-width: fit-content !important; /* Override Python-set min-width */
-        flex-shrink: 0 !important; /* Prevent title column from shrinking too much */
-    }
+.reroll-banner {
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--fps-radius);
+  background: var(--fps-accent-soft);
 }
 
-@media (min-width: 1148px) {
-    .footer-patreon, .footer-version { /* Hide both in footer on larger screens */
-        display: none !important;
-    }
+.reroll-banner p {
+  margin: 0;
+  font-size: 0.85rem;
 }
 
-@media (max-width: 768px) {
-    .toolbar-title {
-        font-size: 1.1rem;
-        max-width: 150px;
-    }
-    #fixed-toolbar {
-        padding: 3px 6px;
-        gap: 4px;
-    }
-    .toolbar-text {
-        font-size: 0.75rem;
-    }
+.checks:empty {
+  display: none;
 }
 
-@media (max-width: 510px) {
-    #toolbar-ram-col, #toolbar-vram-col, #toolbar-gpu-col {
-        display: none !important;
-    }
+.checks .md {
+  display: block;
 }
 
-@media (max-width: 480px) {
-    .toolbar-title {
-        font-size: 1rem;
-        max-width: 120px;
-    }
-    #fixed-toolbar {
-        padding: 2px 4px;
-        gap: 2px;
-    }
-    .toolbar-text {
-        font-size: 0.7rem;
-    }
+.checks .fps-check {
+  margin: 2px 0;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 0.83rem;
+  line-height: 1.4;
 }
 
-/* Button styling */
-#toolbar-add-to-queue-btn button {
-    font-size: 14px !important;
-    padding: 4px 16px !important;
-    height: 32px !important;
-    min-width: 80px !important;
-}
-.narrow-button {
-    min-width: 40px !important;
-    width: 40px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-}
-.gr-button-primary {
-    color: white;
+.checks .fps-check.stop {
+  background: var(--fps-bad-soft);
+  color: var(--fps-bad);
+  font-weight: 550;
 }
 
-/* Layout adjustments */
-body, .gradio-container {
-    padding-top: 30px !important; /* Shorter toolbar offset */
+.checks .fps-check.warn {
+  background: var(--fps-warn-soft);
+  color: var(--body-text-color);
 }
 
-@media (max-width: 848px) {
-    body, .gradio-container {
-        padding-top: 36px !important;
-    }
+#add-to-queue {
+  font-size: 1rem;
 }
 
-@media (max-width: 768px) {
-    body, .gradio-container {
-        padding-top: 20px !important; /* Shorter toolbar offset */
-    }
+.up-next {
+  font-size: 0.83rem;
 }
 
-@media (max-width: 480px) {
-    body, .gradio-container {
-        padding-top: 16px !important; /* Shorter toolbar offset */
-    }
+.up-next .up-next-title {
+  margin: 4px 0 6px;
+  font-weight: 650;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fps-muted);
 }
 
-/* hide the gr.Video source selection bar for tb_input_video_component */
-#toolbox-video-player .source-selection {
-    display: none !important;
-}
-/* control sizing for gr.Video components */    
-.video-size video {
-    max-height: 60vh;
-    min-height: 300px !important;
-    object-fit: contain;
-}
-/* NEW: Closes the gap between input tabs and the pipeline accordion below them */
-#pipeline-controls-wrapper {
-    margin-top: -15px !important; /* Adjust this value to get the perfect "snug" fit */
-}
-/* --- NEW CSS RULE FOR GALLERY SCROLLING --- */
-#gallery-scroll-wrapper {
-    max-height: 600px; /* Set your desired fixed height */
-    overflow-y: auto;   /* Add a scrollbar only when needed */
-}
-#toolbox-start-pipeline-btn {
-    margin-top: -14px !important; /* Adjust this value to get the perfect alignment */
+.up-next ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.control-group {
-    border-top: 1px solid #ccc;
-    border-bottom: 1px solid #ccc;
-    margin: 12px 0;
+.up-next li {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--fps-line);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-/* Queue Styles */
-/* Queue Container */
-
-/* Ensure queue text is readable in both light & dark modes */
-.queue-row,
-.queue-row * {
-  color: var(--text-color, #111) !important;
+.up-next li span {
+  flex: 0 0 52px;
+  color: var(--fps-muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.queue-row-prompt-text,
-.queue-row-setting-label,
-.queue-row-setting-value,
-.queue-row-timings,
-.queue-row-timing-started,
-.queue-row-timing-elapsed,
-.queue-row-timing-completed {
-  color: var(--text-color, #111) !important;
+.up-next li.running span {
+  color: var(--fps-run);
+  font-weight: 600;
 }
 
-/* Light-theme overrides: these target OS/browser light preference and common Gradio theme attributes.
-   They make the queue backgrounds lighter and adjust pill/text contrast for readability. */
-@media (prefers-color-scheme: light) {
-  /* Make row containers light and add a subtle separation */
-  .queue-row {
-    background-color: transparent !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03) !important;
+.up-next .up-next-more,
+.up-next .up-next-empty {
+  padding-top: 6px;
+  color: var(--fps-muted);
+}
+
+@media (max-width: 1000px) {
+  #create-rail {
+    position: static;
   }
-
-  .queue-row-details,
-  .queue-row-prompt,
-  .queue-row-timings,
-  .queue-row-settings {
-    background-color: #f7f7f7 !important;
-    color: #111 !important;
-  }
-
-  /* Lighten/reset preview image border/background */
-  .queue-row-preview img {
-    border-color: rgba(0,0,0,0.06);
-    background: rgba(255,255,255,0.98);
-  }
-
-  /* Ensure pill text is legible and maintain accent */
-  .queue-row-setting-label,
-  .queue-row-setting-value {
-    color: #0b5bd7 !important;
-    background: rgba(74,158,255,0.12) !important;
-  }
-
-  /* Make status badges softer in light mode so they don't create a large dark block */
-  .queue-row-status-pending { background: #ececec !important; }
-  .queue-row-status-running { background: rgba(33,150,243,0.12) !important; }
-  .queue-row-status-completed { background: rgba(76,175,80,0.12) !important; }
-  .queue-row-status-failed { background: rgba(244,67,54,0.12) !important; }
-  .queue-row-status-cancelled { background: rgba(133,77,14,0.08) !important; }
-  .queue-row-status-cancelling { background: rgba(217,119,6,0.12) !important; }
-
-  /* Ensure status icons keep their color */
-  .queue-row-status-icon { color: inherit !important; }
 }
 
-/* Some Gradio builds expose a data-theme attribute; cover that too */
-[data-theme="light"] .queue-row-details,
-[data-theme="light"] .queue-row-prompt,
-[data-theme="light"] .queue-row-timings,
-[data-theme="light"] .queue-row-settings,
-body[data-theme="light"] .queue-row-details,
-body[data-theme="light"] .queue-row-prompt,
-.gradio-container[data-theme="light"] .queue-row-details,
-.gradio-container[data-theme="light"] .queue-row-prompt {
-  background-color: #f7f7f7 !important;
-  color: #111 !important;
-}
+/* ------------------------------------------------------------------- queue */
 
 .queue-container {
-  border-radius: 8px;
-  overflow: hidden;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
 }
 
-/* Queue Row */
 .queue-row {
   display: grid;
-  grid-template-columns: 40px 1fr 220px 150px;
-  border-radius: 15px;
-  transition: background-color 0.2s ease;
-  align-items: start;
+  grid-template-columns: 6px 1fr 190px 120px;
+  align-items: stretch;
   overflow: hidden;
-  margin-bottom: 25px;
-  position: relative;
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  background: var(--fps-surface);
+  color: var(--body-text-color);
+}
+
+.queue-row-status {
+  display: block;
+  background: var(--fps-muted);
+}
+
+.queue-row-status-icon {
+  display: none;
+}
+
+.queue-row-status-pending {
+  background: var(--fps-line);
+}
+.queue-row-status-running,
+.queue-row-status-cancelling {
+  background: var(--fps-run);
+}
+.queue-row-status-completed {
+  background: var(--fps-ok);
+}
+.queue-row-status-failed {
+  background: var(--fps-bad);
+}
+.queue-row-status-cancelled {
+  background: var(--fps-warn);
 }
 
 .queue-row-details {
-  background-color: var(--background-fill-primary, #f7f7f7);
-  border: 1px solid rgba(0,0,0,0.06);
-}
-
-.queue-row-prompt {
-  padding: 10px;
-  background-color: var(--background-fill-primary, #f7f7f7);
-  border-bottom: 1px solid rgba(0,0,0,0.04);
+  min-width: 0;
+  padding: 10px 14px;
 }
 
 .queue-row-prompt-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
-  line-clamp: 3;
+  overflow: hidden;
+  line-height: 1.4;
 }
 
-/* Settings Pills */
 .queue-row-settings {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  padding: 10px;
-  background-color: var(--background-fill-primary, #f7f7f7);
-  border-top-left-radius: 15px;
-  border-top-right-radius: 15px;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .queue-row-setting-pill {
   display: inline-flex;
-  font-size: 11px;
-  line-height: 1;
-  border-radius: 12px;
   overflow: hidden;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1;
+  background: var(--fps-surface-2);
 }
 
 .queue-row-setting-label {
-  background: rgba(74, 158, 255, 0.2);
-  color: #4a9eff;
-  padding: 4px 8px;
+  padding: 4px 6px 4px 8px;
+  color: var(--fps-muted);
 }
 
 .queue-row-setting-value {
-  background: rgba(74, 158, 255, 0.1);
-  color: #4a9eff;
-  padding: 4px 8px;
+  padding: 4px 8px 4px 0;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Status Badge */
-.queue-row-status {
-  width: 40px;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-bottom-right-radius: 15px;
-}
-
-/* Status Colors */
-.queue-row-status-pending {
-  background: #2a2a2a;
-}
-
-.queue-row-status-running {
-  background: #1a4b7c;
-}
-
-.queue-row-status-completed {
-  background: #1b5e20;
-}
-
-.queue-row-status-failed {
-  background: #7f1d1d;
-}
-
-.queue-row-status-cancelled {
-  background: #854d0e;
-}
-
-.queue-row-status-cancelling {
-  background: #d97706;
-}
-
-/* Status Icons */
-.queue-row-status-icon {
-  width: 24px;
-  height: 24px;
-  fill: currentColor;
-}
-
-.queue-row-status-pending .queue-row-status-icon {
-  color: #9e9e9e;
-}
-
-.queue-row-status-running .queue-row-status-icon {
-  color: #2196f3;
-}
-
-.queue-row-status-completed .queue-row-status-icon {
-  color: #4caf50;
-}
-
-.queue-row-status-failed .queue-row-status-icon {
-  color: #f44336;
-}
-
-.queue-row-status-cancelled .queue-row-status-icon {
-  color: #ffc107;
-}
-
-.queue-row-status-cancelling .queue-row-status-icon {
-  color: #f59e0b;
-}
-
-/* Timings */
 .queue-row-timings {
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  height: 100%;
-  padding: 10px;
-  margin-right: 10px;
-  background-color: var(--background-fill-primary, #f7f7f7);
-  border-top-right-radius: 15px;
-  border-bottom-left-radius: 15px;
-  border-bottom-right-radius: 15px;
-  box-shadow: 0 1px 0 rgba(0,0,0,0.04);
-}
-
-/* Preview Image */
-.queue-row-preview {
-  height: 100%;
-}
-.queue-row-preview img {
-  border-radius: 15px;
-  border: 1px solid rgba(0,0,0,0.06);
-  background: rgba(255,255,255,0.9);
-  height: 100%;
-  object-fit: fill !important;
-}
-
-/* Animations */
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.6; }
-  100% { opacity: 1; }
-}
-
-/* Scrollbar Styling */
-.queue-body::-webkit-scrollbar {
-  width: 8px;
-}
-
-.queue-body::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-}
-
-.queue-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
-}
-
-.queue-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-/* --- Toolbar Graphs & Queue Stats --- */
-
-/* Improve toolbar aesthetics */
-#fixed-toolbar {
-  background: rgba(30, 30, 30, 0.85);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  backdrop-filter: saturate(150%) blur(6px);
-  -webkit-backdrop-filter: saturate(150%) blur(6px);
-  gap: 10px;
-}
-
-/* Queue stats mini stacked bar */
-.queue-stats {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  min-width: 220px;
-}
-.queue-stats-bar {
-  display: flex;
-  height: 8px;
-  width: 240px;
-  border-radius: 6px;
-  overflow: hidden;
-  background: rgba(255,255,255,0.12);
-}
-.queue-stats-bar .seg {
-  display: block;
-  height: 100%;
-  transition: width 0.35s ease;
-}
-.queue-stats-bar .pending { background: #6b7280; }  /* gray */
-.queue-stats-bar .running { background: #3b82f6; }  /* blue */
-.queue-stats-bar .completed { background: #22c55e; } /* green */
-.queue-stats-labels {
-  font-size: 0.8rem;
-  color: #e5e7eb;
-  text-align: center;
-  white-space: nowrap;
-}
-
-/* Compact stat cards with percentage bars */
-.stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 6px 10px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  min-width: 140px;
-}
-.stat-card .stat-label {
-  font-size: 0.7rem;
-  color: #e5e7eb;
-  opacity: 1;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.stat-card .stat-value {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #fff;
-}
-.stat-card .stat-bar {
-  height: 6px;
-  width: 100%;
-  border-radius: 4px;
-  background: rgba(255,255,255,0.12);
-  overflow: hidden;
-}
-.stat-card .stat-bar .fill {
-  display: block;
-  height: 100%;
-  width: 0%;
-  transition: width 0.35s ease;
-}
-/* Color variants for fills */
-.stat-card.ram .stat-bar .fill {
-  background: linear-gradient(90deg, #60a5fa, #3b82f6);
-}
-.stat-card.vram .stat-bar .fill {
-  background: linear-gradient(90deg, #f59e0b, #ef4444);
-}
-.stat-card.gpu .stat-bar .fill {
-  background: linear-gradient(90deg, #34d399, #10b981);
-}
-
-/* Ensure HTML stat components are snug */
-.toolbar-stat-html {
-  padding: 0 !important;
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .queue-stats-bar { width: 180px; }
-  .queue-stats-labels { font-size: 0.75rem; }
-  .stat-card { min-width: 120px; padding: 5px 8px; }
-}
-
-/* --- Variable-driven updates (no flashing) & compact toolbar --- */
-
-/* Shorter toolbar overall */
-#fixed-toolbar {
-  padding: 0 8px !important;
-  gap: 6px !important;
-  flex-wrap: nowrap !important;         /* keep one row */
-  justify-content: flex-start;          /* title left, rest flow right */
-  overflow-x: hidden;                   /* prevent horizontal scrollbar caused by tight layouts */
-}
-/* Flexible spacer inserted between title and right-side stats */
-#toolbar-spacer { 
-  flex: 1 1 auto !important; 
-  min-width: 12px; 
-}
-
-/* Place queue stats + device cards using Gradio Column as a right-aligned flex row */
-#toolbar-right-col {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: flex-end !important;
-  gap: 12px !important;
-  flex-wrap: nowrap !important;
-  min-width: 0 !important; /* allow shrinking without wrapping */
-}
-
-/* Ensure style-wrapper components don't take layout space in the toolbar row */
-#queue-stats-vars-wrapper,
-#toolbar-stats-vars-wrapper {
-  position: absolute !important;
-  left: -99999px !important;   /* off-screen */
-  width: 0 !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  pointer-events: none !important;
-}
-
-/* Force the queue stats + device cards to live on the upper-right in one row */
-#toolbar-right {
-  margin-left: auto;               /* push this whole group to the right */
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: nowrap;               /* keep them side-by-side */
-  min-width: 0;                    /* allow shrink instead of wrapping */
-}
-
-/* IMPORTANT: The flex child of #fixed-toolbar is the Gradio wrapper with this id */
-#toolbar-right-wrap,
-#toolbar-right {
-  margin-left: auto !important;    /* push the whole wrapper to the right */
-}
-
-/* Let Gradio wrappers shrink/grow so the right group can sit on the same row */
-#fixed-toolbar > div {
-  min-width: 0 !important;
-  flex: 0 1 auto !important;
-}
-#fixed-toolbar > div:first-child {
-  flex: 0 0 auto !important;       /* title stays compact */
-}
-
-/* Inside the right group, do NOT push queue stats with auto margin */
-#toolbar-right #queue-stats {
-  margin-left: 0 !important;       /* override earlier global rule */
-}
-
-/* Keep device cards horizontal in the right group */
-#toolbar-right .stats-stack { 
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Slightly smaller min width so three cards fit more often */
-#toolbar-right .stat-card { 
-  min-width: 110px;                     /* allow a bit more shrink to keep all three visible */
-  flex: 0 0 auto;                       /* prevent cards from collapsing */
-}
-
-/* Slightly smaller title */
-.toolbar-title {
-  font-size: 1.2rem !important;
-}
-
-/* Queue stats: bind widths and labels via CSS variables */
-#queue-stats .queue-stats-bar .pending { width: var(--qs-p, 0%); }
-#queue-stats .queue-stats-bar .running { width: var(--qs-r, 0%); }
-#queue-stats .queue-stats-bar .completed { width: var(--qs-c, 0%); }
-#queue-stats .queue-stats-labels::after { content: var(--qs-label, ''); }
-
-/* Make the queue bar a bit slimmer and narrower */
-#queue-stats .queue-stats-bar { height: 6px; width: clamp(160px, 18vw, 220px); }
-
-/* Stack toolbar cards vertically and use variables for values */
-/* Ensure the three stat cards align horizontally */
-#toolbar-stats-container .stats-stack,
-#toolbar-stats-container.stats-stack,
-#toolbar-stats-stack,
-.stats-stack {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: nowrap; /* side-by-side by default */
-}
-
-/* Allow wrapping on small screens only */
-@media (max-width: 768px) {
-  #toolbar-stats-container .stats-stack,
-  .stats-stack { flex-wrap: wrap; }
-}
-/* Give the stats area more room and allow other toolbar items to shrink */
-#toolbar-stats-container {
-  flex: initial;
-  min-width: 0;
-}
-/* Allow the title/other columns to shrink so stats can stay in one line */
-/* Make queue bar width responsive so it doesn't hog space */
-#queue-stats { 
-  flex: 0 1 auto; 
-  min-width: 160px; 
-  margin-left: auto;                    /* push queue stats (and following items) to right */
-}
-#queue-stats .queue-stats-bar { 
-  width: 200px;
-}
-
-/* Compact stat cards */
-#toolbar-stats-container .stat-card {
-  padding: 4px 8px;
   gap: 2px;
+  padding: 10px 12px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fps-muted);
+  border-left: 1px solid var(--fps-line);
 }
-#toolbar-stats-container .stat-card .stat-bar { height: 4px; }
-/* (reverted) allow natural flex behavior for stat cards */
 
-/* Show value via ::after to avoid text rewrites (prevents flashing) */
-#toolbar-stats-container .stat-card .stat-value {
-  color: transparent; /* hide initial placeholder text */
-  position: relative;
-}
-#toolbar-stats-container .ram .stat-value::after { content: var(--ram-text, 'N/A'); color: #fff; }
-#toolbar-stats-container .vram .stat-value::after { content: var(--vram-text, 'N/A'); color: #fff; }
-#toolbar-stats-container .gpu  .stat-value::after { content: var(--gpu-text, 'N/A');  color: #fff; }
-
-
-/* Bind fill widths to CSS variables for smooth transitions without DOM churn */
-#toolbar-stats-container .ram  .stat-bar .fill { width: var(--ram-fill, 0%); }
-#toolbar-stats-container .vram .stat-bar .fill { width: var(--vram-fill, 0%); }
-#toolbar-stats-container .gpu  .stat-bar .fill { width: var(--gpu-fill, 0%); }
-
-/* --- Queue Row Action Button Styles --- */
 .queue-row-actions {
+  margin-top: 6px;
+}
+
+.queue-row-action-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--fps-line);
+  border-radius: 6px;
+  background: var(--fps-surface);
+  color: var(--body-text-color);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.queue-row-action-btn:hover:not(:disabled) {
+  border-color: var(--fps-bad);
+  color: var(--fps-bad);
+}
+
+.queue-row-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.queue-row-preview {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 4px 0;
+  background: var(--fps-surface-2);
 }
-.queue-row-action-btn {
-  font-size: 12px;
-  line-height: 1;
-  padding: 4px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(0,0,0,0.06);
-  cursor: pointer;
-  background: rgba(74,158,255,0.12);
-  color: var(--text-color, #111);
+
+.queue-row-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 120px;
+  object-fit: cover;
 }
-.queue-row-action-btn[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
+
+@media (max-width: 760px) {
+  .queue-row {
+    grid-template-columns: 6px 1fr;
+  }
+  .queue-row-timings,
+  .queue-row-preview {
+    grid-column: 2;
+    border-left: none;
+  }
 }
-.queue-row-action-btn[data-action="cancel"] {
-  background: rgba(217, 119, 6, 0.15);
-  color: #d97706;
-  border-color: rgba(217,119,6,0.25);
+
+/* ----------------------------------------------------------------- library */
+
+#library-root {
+  gap: 20px;
+  align-items: flex-start;
 }
-.queue-row-action-btn[data-action="remove"] {
-  background: rgba(0,0,0,0.06);
-  color: var(--text-color, #111);
+
+#library-detail {
+  position: sticky;
+  top: 64px;
+}
+
+.lib-summary .lib-prompt {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.lib-summary .muted {
+  margin: 0 0 8px;
+  color: var(--fps-muted);
+  font-size: 0.85rem;
+}
+
+.lib-summary dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 10px 0 0;
+  font-size: 0.85rem;
+}
+
+.lib-summary dt {
+  color: var(--fps-muted);
+}
+
+.lib-summary dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.action-row {
+  gap: 8px;
+}
+
+/* -------------------------------------------------------------- settings */
+
+.settings-card {
+  padding: 12px;
+  border-radius: var(--fps-radius);
+}
+
+/* ----------------------------------------------------------------- tools */
+
+/* hide the source selection bar on the Tools input player */
+#toolbox-video-player .source-selection {
+  display: none;
+}
+
+.video-size video {
+  max-height: 60vh;
+  min-height: 300px;
+  object-fit: contain;
+}
+
+#gallery-scroll-wrapper {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.analysis-box textarea {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
 }

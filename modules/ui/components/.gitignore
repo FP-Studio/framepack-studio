@@ -1,0 +1,3 @@
+# Gradio writes .pyi stubs next to component classes on import.
+*.pyi
+__pycache__/

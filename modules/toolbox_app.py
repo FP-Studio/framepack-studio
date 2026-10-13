@@ -1706,12 +1706,6 @@ def tb_create_video_toolbox_ui():
                             file_count="multiple",
                             type="filepath",
                         )
-                tb_start_pipeline_btn = gr.Button(
-                    "🚀 Start Pipeline Processing",
-                    variant="primary",
-                    size="sm",
-                    elem_id="toolbox-start-pipeline-btn",
-                )
 
             with gr.Column(scale=1):
                 with gr.Tabs(elem_id="toolbox_output_tabs"):
@@ -1733,108 +1727,10 @@ def tb_create_video_toolbox_ui():
                                 scale=4,
                                 visible=not initial_autosave_state,
                             )
-
-        with gr.Row():
-            with gr.Column(scale=1):
-                with gr.Accordion("Processing Pipeline", open=True):
-                    gr.Markdown(
-                        "Required for batch processing and recommended for single video. ",
-                        elem_classes="small-text-info",
-                    )
-                    with gr.Row(equal_height=False):
-                        with gr.Group():
-                            tb_pipeline_steps_chkbox = gr.CheckboxGroup(
-                                label="Pipeline Steps:",
-                                choices=[
-                                    "upscale",
-                                    "frames",
-                                    "filters",
-                                    "loop",
-                                    "export",
-                                ],
-                                value=[],
-                                info="Select which pre-configured operations to run. Executed in order.",
-                            )
-
-            # --- Right Column: Workflow Presets ---
-            with gr.Column(scale=1):
-                with gr.Accordion("Workflow Presets", open=True):
-                    gr.Markdown(
-                        "Save/load all operation settings and active steps.",
-                        elem_classes="small-text-info",
-                    )
-                    with gr.Row():
-                        workflow_choices = sorted(
-                            [k for k in tb_workflow_presets_data.keys() if k != "None"]
-                        )
-                        workflow_choices.insert(0, "None")
-                        with gr.Column(scale=1):
-                            tb_workflow_preset_select = gr.Dropdown(
-                                choices=workflow_choices,
-                                value="None",
-                                label="Load Workflow",
-                            )
-                        with gr.Column(scale=1):
-                            tb_workflow_preset_name_input = gr.Textbox(
-                                label="Preset Name (for saving)",
-                                placeholder="e.g., My Favorite Upscale",
-                            )
-                    with gr.Group():
-                        with gr.Row():
-                            tb_workflow_save_btn = gr.Button(
-                                "💾 Save/Update", size="sm", variant="primary"
-                            )
-                            tb_workflow_delete_btn = gr.Button(
-                                "🗑️ Delete", size="sm", variant="stop"
-                            )
-                            tb_workflow_reset_btn = gr.Button(
-                                "🔄 Reset All to Defaults", size="sm"
-                            )
-
-        with gr.Row():
-            with gr.Column():
-                with gr.Group():
-                    tb_analyze_button = gr.Button(
-                        "Click to Analyze Input Video", size="sm", variant="huggingface"
-                    )
-                    with gr.Accordion(
-                        "Video Analysis Results", open=False
-                    ) as tb_analysis_accordion:
-                        tb_video_analysis_output = gr.Textbox(
-                            container=False,
-                            lines=10,
-                            show_label=False,
-                            interactive=False,
-                            elem_classes="analysis-box",
-                        )
-
-            with gr.Column():
-                with gr.Group():
-                    with gr.Row():
-                        tb_monitor_toggle_checkbox = gr.Checkbox(
-                            label="Live System Monitoring", value=False
-                        )
-                        tb_autosave_checkbox = gr.Checkbox(
-                            label="Autosave", value=initial_autosave_state
-                        )
-                    tb_resource_monitor_output = gr.Textbox(
-                        show_label=False,
-                        container=False,
-                        max_lines=8,
-                        interactive=False,
-                        visible=False,
-                    )
-                    with gr.Row():
-                        tb_delete_studio_transformer_btn = gr.Button(
-                            "Click to Unload Studio Model",
-                            size="sm",
-                            scale=3,
-                            variant="stop",
-                        )
-
-    with gr.Accordion("Operations", open=True):
+    gr.Markdown("### Operations", elem_classes="section-title")
+    with gr.Column(elem_id="tools-operations"):
         with gr.Tabs():
-            with gr.TabItem("📈 Upscale Video (ESRGAN)"):
+            with gr.TabItem("Upscale"):
                 with gr.Row():
                     gr.Markdown("Upscale video resolution using Real-ESRGAN.")
                 with gr.Row():
@@ -1920,11 +1816,9 @@ def tb_create_video_toolbox_ui():
                                 interactive=True,
                             )
                 with gr.Row():
-                    tb_upscale_video_btn = gr.Button(
-                        "🚀 Upscale Video", variant="primary"
-                    )
+                    tb_upscale_video_btn = gr.Button("Upscale Video", variant="primary")
 
-            with gr.TabItem("🎞️ Frame Adjust (Speed & Interpolation)"):
+            with gr.TabItem("Frame rate & speed"):
                 with gr.Row():
                     gr.Markdown(
                         "Adjust video speed and interpolate frames using RIFE AI."
@@ -1951,11 +1845,9 @@ def tb_create_video_toolbox_ui():
                         info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio.",
                     )
 
-                tb_process_frames_btn = gr.Button(
-                    "🚀 Process Frames", variant="primary"
-                )
+                tb_process_frames_btn = gr.Button("Process Frames", variant="primary")
 
-            with gr.TabItem("🎨 Video Filters (FFmpeg)"):
+            with gr.TabItem("Filters"):
                 with gr.Row():
                     gr.Markdown("Apply visual enhancements using FFmpeg filters.")
                 with gr.Row():
@@ -2045,7 +1937,7 @@ def tb_create_video_toolbox_ui():
                     )
 
                 tb_apply_filters_btn = gr.Button(
-                    "✨ Apply Filters to Video", variant="primary"
+                    "Apply Filters to Video", variant="primary"
                 )
 
                 with gr.Row(equal_height=False):
@@ -2075,17 +1967,17 @@ def tb_create_video_toolbox_ui():
                     with gr.Column(scale=1):
                         with gr.Row():
                             tb_save_preset_btn = gr.Button(
-                                "💾 Save/Update", variant="primary", scale=1
+                                "Save/Update", variant="primary", scale=1
                             )
                             tb_delete_preset_btn = gr.Button(
-                                "🗑️ Delete", variant="stop", scale=1
+                                "Delete", variant="stop", scale=1
                             )
                         with gr.Row():
                             tb_reset_filters_btn = gr.Button(
-                                "🔄 Reset All Sliders to 'None' Preset"
+                                "Reset All Sliders to 'None' Preset"
                             )
 
-            with gr.TabItem("🔄 Video Loop"):
+            with gr.TabItem("Loop"):
                 with gr.Row():
                     gr.Markdown("Create looped or ping-pong versions of the video.")
 
@@ -2100,9 +1992,9 @@ def tb_create_video_toolbox_ui():
                     label="Number of Loops/Repeats",
                     info="The video will play its original content, then repeat this many additional times. E.g., 1 loop = 2 total plays of the segment.",
                 )
-                tb_create_loop_btn = gr.Button("🔁 Create Loop", variant="primary")
+                tb_create_loop_btn = gr.Button("Create Loop", variant="primary")
 
-            with gr.TabItem("🖼️ Frames Studio"):
+            with gr.TabItem("Frames Studio"):
                 with gr.Column():
                     gr.Markdown("### 1. Extract Frames from Video")
                     gr.Markdown(
@@ -2121,7 +2013,7 @@ def tb_create_video_toolbox_ui():
                             scale=1,
                         )
                         tb_extract_frames_btn = gr.Button(
-                            "🔨 Extract Frames", variant="primary", scale=2
+                            "Extract Frames", variant="primary", scale=2
                         )
 
                 gr.Markdown("---")
@@ -2138,16 +2030,16 @@ def tb_create_video_toolbox_ui():
                             scale=3,
                         )
                         tb_refresh_extracted_folders_btn = gr.Button(
-                            "🔄 Refresh List", scale=1
+                            "Refresh List", scale=1
                         )
                         tb_clear_selected_folder_btn = gr.Button(
-                            "🗑️ Delete ENTIRE Folder",
+                            "Delete ENTIRE Folder",
                             variant="stop",
                             interactive=False,
                             scale=1,
                         )
                     tb_load_frames_to_studio_btn = gr.Button(
-                        "🖼️ Load Frames to Studio", variant="secondary"
+                        "Load Frames to Studio", variant="secondary"
                     )
 
                     # Redesigned Studio Area
@@ -2164,12 +2056,12 @@ def tb_create_video_toolbox_ui():
                         with gr.Row():
                             with gr.Column(scale=1, min_width=220):
                                 tb_save_selected_frame_btn = gr.Button(
-                                    "💾 Save Selected Frame",
+                                    "Save Selected Frame",
                                     size="sm",
                                     interactive=False,
                                 )
                                 tb_delete_selected_frame_btn = gr.Button(
-                                    "🗑️ Delete Selected Frame",
+                                    "Delete Selected Frame",
                                     size="sm",
                                     variant="stop",
                                     interactive=False,
@@ -2186,7 +2078,7 @@ def tb_create_video_toolbox_ui():
                                         scale=4,
                                     )
                                     tb_clear_gallery_btn = gr.Button(
-                                        "🧹 Clear Gallery", size="sm", scale=1
+                                        "Clear Gallery", size="sm", scale=1
                                     )
 
                 gr.Markdown("---")
@@ -2205,10 +2097,10 @@ def tb_create_video_toolbox_ui():
                             placeholder="e.g., my_edited_video",
                         )
                     tb_reassemble_frames_btn = gr.Button(
-                        "🧩 Reassemble From Studio", variant="primary"
+                        "Reassemble From Studio", variant="primary"
                     )
 
-            with gr.TabItem("🧩 Join Videos (Concatenate)"):
+            with gr.TabItem("Join videos"):
                 with gr.Accordion(
                     "Select two or more videos to join them together into a single file",
                     open=True,
@@ -2231,9 +2123,9 @@ def tb_create_video_toolbox_ui():
                     placeholder="e.g., my_awesome_compilation",
                 )
 
-                tb_join_videos_btn = gr.Button("🤝 Join Videos", variant="primary")
+                tb_join_videos_btn = gr.Button("Join Videos", variant="primary")
 
-            with gr.TabItem("📦 Export & Compress"):
+            with gr.TabItem("Export & compress"):
                 with gr.Accordion(
                     "Compress your final video and/or convert it into a shareable format",
                     open=True,
@@ -2276,11 +2168,116 @@ def tb_create_video_toolbox_ui():
                             placeholder="e.g., my_final_video_for_discord",
                         )
 
-                tb_export_video_btn = gr.Button("🚀 Export Video", variant="primary")
+                tb_export_video_btn = gr.Button("Export Video", variant="primary")
 
-    with gr.Accordion("💡 Post-processing Guide & Tips", open=False):
+    with gr.Accordion("Pipeline: run several operations in a row", open=False):
+        with gr.Row():
+            with gr.Column(scale=1):
+                with gr.Accordion("Processing Pipeline", open=True):
+                    gr.Markdown(
+                        "Required for batch processing and recommended for single video. ",
+                        elem_classes="small-text-info",
+                    )
+                    with gr.Row(equal_height=False):
+                        with gr.Group():
+                            tb_pipeline_steps_chkbox = gr.CheckboxGroup(
+                                label="Pipeline Steps:",
+                                choices=[
+                                    "upscale",
+                                    "frames",
+                                    "filters",
+                                    "loop",
+                                    "export",
+                                ],
+                                value=[],
+                                info="Select which pre-configured operations to run. Executed in order.",
+                            )
+
+            # --- Right Column: Workflow Presets ---
+            with gr.Column(scale=1):
+                with gr.Accordion("Workflow Presets", open=True):
+                    gr.Markdown(
+                        "Save/load all operation settings and active steps.",
+                        elem_classes="small-text-info",
+                    )
+                    with gr.Row():
+                        workflow_choices = sorted(
+                            [k for k in tb_workflow_presets_data.keys() if k != "None"]
+                        )
+                        workflow_choices.insert(0, "None")
+                        with gr.Column(scale=1):
+                            tb_workflow_preset_select = gr.Dropdown(
+                                choices=workflow_choices,
+                                value="None",
+                                label="Load Workflow",
+                            )
+                        with gr.Column(scale=1):
+                            tb_workflow_preset_name_input = gr.Textbox(
+                                label="Preset Name (for saving)",
+                                placeholder="e.g., My Favorite Upscale",
+                            )
+                    with gr.Group():
+                        with gr.Row():
+                            tb_workflow_save_btn = gr.Button(
+                                "Save/Update", size="sm", variant="primary"
+                            )
+                            tb_workflow_delete_btn = gr.Button(
+                                "Delete", size="sm", variant="stop"
+                            )
+                            tb_workflow_reset_btn = gr.Button(
+                                "Reset All to Defaults", size="sm"
+                            )
+
+        tb_start_pipeline_btn = gr.Button(
+            "Start pipeline",
+            variant="primary",
+            elem_id="toolbox-start-pipeline-btn",
+        )
+    with gr.Accordion("Video details & system", open=False):
+        with gr.Row():
+            with gr.Column():
+                with gr.Group():
+                    tb_analyze_button = gr.Button(
+                        "Click to Analyze Input Video", size="sm", variant="huggingface"
+                    )
+                    with gr.Accordion(
+                        "Video Analysis Results", open=False
+                    ) as tb_analysis_accordion:
+                        tb_video_analysis_output = gr.Textbox(
+                            container=False,
+                            lines=10,
+                            show_label=False,
+                            interactive=False,
+                            elem_classes="analysis-box",
+                        )
+
+            with gr.Column():
+                with gr.Group():
+                    with gr.Row():
+                        tb_monitor_toggle_checkbox = gr.Checkbox(
+                            label="Live System Monitoring", value=False
+                        )
+                        tb_autosave_checkbox = gr.Checkbox(
+                            label="Autosave", value=initial_autosave_state
+                        )
+                    tb_resource_monitor_output = gr.Textbox(
+                        show_label=False,
+                        container=False,
+                        max_lines=8,
+                        interactive=False,
+                        visible=False,
+                    )
+                    with gr.Row():
+                        tb_delete_studio_transformer_btn = gr.Button(
+                            "Click to Unload Studio Model",
+                            size="sm",
+                            scale=3,
+                            variant="stop",
+                        )
+
+    with gr.Accordion("Guide & tips", open=False):
         with gr.Tabs():
-            with gr.TabItem("🚀 Getting Started"):
+            with gr.TabItem("Getting started"):
                 gr.Markdown("""
                 ### Welcome to the Toolbox!
                 
@@ -2302,7 +2299,7 @@ def tb_create_video_toolbox_ui():
                 *   It's a good idea to click the **'Analyze Video'** button after uploading. It gives you helpful info like resolution and frame rate.
                 """)
 
-            with gr.TabItem("⛓️ The Processing Pipeline"):
+            with gr.TabItem("The pipeline"):
                 gr.Markdown("""
                 ### Run Multiple Operations at Once
                 The pipeline lets you set up a series of operations and run them with a single click. This is the main way to process videos.
@@ -2325,7 +2322,7 @@ def tb_create_video_toolbox_ui():
                 *   Use presets to **save and load your entire pipeline setup**, including all slider values and selected steps.
                 """)
 
-            with gr.TabItem("🖼️ Frames Studio Workflow"):
+            with gr.TabItem("Frames Studio Workflow"):
                 gr.Markdown("""
                 ### Edit Your Video Frame-by-Frame
                 The Frames Studio lets you break a video into images, edit them, and put them back together.
@@ -2346,11 +2343,11 @@ def tb_create_video_toolbox_ui():
                 *   This creates a new video using only the frames that are left in the folder.
                 """)
 
-            with gr.TabItem("⚙️ Other Tools & Tips"):
+            with gr.TabItem("Other tools & tips"):
                 gr.Markdown("""
                 ### Individual Operations
                 *   **🧩 Join Videos:** Combine multiple video clips into a single video file. The tool will automatically handle different resolutions and audio.
-                *   **📦 Export & Compress:** A powerful tool to make your final video smaller. You can lower the quality, resize the video, or convert it to `MP4`, `WebM`, or a silent `GIF`.
+                *   **Export & compress:** A powerful tool to make your final video smaller. You can lower the quality, resize the video, or convert it to `MP4`, `WebM`, or a silent `GIF`.
 
                 ### Memory Management
                 *   The **'📤 Unload Studio Model'** button can free up VRAM by removing the main video generation model from memory.
@@ -2390,9 +2387,9 @@ def tb_create_video_toolbox_ui():
             value=tb_update_messages,
         )
     with gr.Row():
-        tb_open_folder_button = gr.Button("📁 Open Output Folder", scale=4)
+        tb_open_folder_button = gr.Button("Open Output Folder", scale=4)
         tb_clear_temp_button = gr.Button(
-            "🗑️ Clear Temporary Files", variant="stop", scale=1
+            "Clear Temporary Files", variant="stop", scale=1
         )
 
         # --- Event Handlers ---

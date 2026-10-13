@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gradio_motioncanvas"
+version = "0.1.0"
+description = "Motion-arrow canvas component for FramePack Studio"
+requires-python = ">=3.10"
+keywords = ["gradio-custom-component"]
+dependencies = ["gradio>=5.25,<6.0"]
+
+[tool.hatch.build]
+artifacts = ["/backend/gradio_motioncanvas/templates", "*.pyi"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["/backend/gradio_motioncanvas"]

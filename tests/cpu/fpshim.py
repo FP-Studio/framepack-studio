@@ -2,6 +2,7 @@
 
 import importlib.abc
 import importlib.machinery
+import os
 import sys
 import types
 
@@ -21,6 +22,9 @@ STUB_PREFIXES = (
     "hydra",
     "torchdiffeq",
 )
+# eva-decord has arm64 Mac wheels; FP_REAL_DECORD=1 uses it so video jobs run.
+if os.environ.get("FP_REAL_DECORD"):
+    STUB_PREFIXES = tuple(p for p in STUB_PREFIXES if p != "decord")
 
 
 class _StubMeta(type):
