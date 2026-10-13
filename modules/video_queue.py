@@ -644,6 +644,10 @@ class VideoJobQueue:
                     if isinstance(p3, str) and p3 not in paths_to_consider:
                         paths_to_consider.append(p3)
 
+                    p4 = job.params.get("motion_reference_video")
+                    if isinstance(p4, str) and p4 not in paths_to_consider:
+                        paths_to_consider.append(p4)
+
                     for rel_or_abs_path in paths_to_consider:
                         # Resolve to absolute path. If already absolute, abspath does nothing.
                         # If relative, it's resolved against CWD (current working directory).

@@ -51,6 +51,7 @@ def sample_hunyuan(
     device=None,
     negative_kwargs=None,
     callback=None,
+    noise=None,
     **kwargs,
 ):
     device = device or transformer.device
@@ -58,11 +59,14 @@ def sample_hunyuan(
     if batch_size is None:
         batch_size = int(prompt_embeds.shape[0])
 
-    latents = torch.randn(
-        (batch_size, 16, (frames + 3) // 4, height // 8, width // 8),
-        generator=generator,
-        device=generator.device,
-    ).to(device=device, dtype=torch.float32)
+    shape = (batch_size, 16, (frames + 3) // 4, height // 8, width // 8)
+    if noise is None:
+        latents = torch.randn(shape, generator=generator, device=generator.device)
+    else:
+        # Caller-supplied starting noise, e.g. warped along a motion field
+        assert tuple(noise.shape) == shape, f"noise shape {noise.shape} != {shape}"
+        latents = noise
+    latents = latents.to(device=device, dtype=torch.float32)
 
     B, C, T, H, W = latents.shape
     seq_length = T * H * W // 4
@@ -77,7 +81,9 @@ def sample_hunyuan(
     k_model = fm_wrapper(transformer)
 
     if initial_latent is not None:
-        sigmas = sigmas * strength
+        # img2img: skip the first (1 - strength) of the steps, like diffusers
+        keep = max(1, min(num_inference_steps, round(num_inference_steps * strength)))
+        sigmas = sigmas[num_inference_steps - keep :]
         first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
         initial_latent = initial_latent.to(device=device, dtype=torch.float32)
         latents = (

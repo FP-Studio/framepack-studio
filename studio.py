@@ -308,6 +308,18 @@ def process(
     num_cleaned_frames,
     *lora_args,
     save_metadata_checked=True,  # NEW: Parameter to control metadata saving
+    save_section_latents=True,
+    reroll_latents_path=None,
+    reroll_from_section=None,
+    keyframe_images=None,
+    keyframe_times=None,
+    motion_reference_video=None,
+    motion_reference_strength=0.5,
+    motion_reference_start=0.0,
+    flow_noise_arrows=None,
+    flow_noise_camera="None",
+    flow_noise_camera_amount=0.3,
+    flow_noise_strength=0.7,
 ):
     # Create a blank black image if no
     # Create a default image based on the selected latent_type
@@ -379,6 +391,18 @@ def process(
         except Exception as e:
             print(f"Error copying end frame image: {e}")
 
+    # Copy the motion reference video so temp cleanup can't remove it mid-queue
+    if motion_reference_video and os.path.exists(motion_reference_video):
+        filename = os.path.basename(motion_reference_video)
+        copied_path = os.path.join(
+            input_files_dir, f"{generate_timestamp()}_{filename}"
+        )
+        try:
+            shutil.copy2(motion_reference_video, copied_path)
+            motion_reference_video = copied_path
+        except Exception as e:
+            print(f"Error copying motion reference video: {e}")
+
     # Extract lora_loaded_names from lora_args
     lora_loaded_names = lora_args[0] if lora_args and len(lora_args) > 0 else []
     lora_values = lora_args[1:] if lora_args and len(lora_args) > 1 else []
@@ -424,6 +448,18 @@ def process(
         "combine_with_source": combine_with_source,  # Add combine_with_source parameter
         "num_cleaned_frames": num_cleaned_frames,
         "save_metadata_checked": save_metadata_checked,  # NEW: Add save_metadata_checked parameter
+        "save_section_latents": save_section_latents,
+        "reroll_latents_path": reroll_latents_path,
+        "reroll_from_section": reroll_from_section,
+        "keyframe_images": keyframe_images,
+        "keyframe_times": keyframe_times,
+        "motion_reference_video": motion_reference_video,
+        "motion_reference_strength": motion_reference_strength,
+        "motion_reference_start": motion_reference_start,
+        "flow_noise_arrows": flow_noise_arrows,
+        "flow_noise_camera": flow_noise_camera,
+        "flow_noise_camera_amount": flow_noise_camera_amount,
+        "flow_noise_strength": flow_noise_strength,
     }
 
     logging.getLogger(__name__).debug(

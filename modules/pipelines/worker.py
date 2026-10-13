@@ -28,6 +28,9 @@ from diffusers_helper.hunyuan import vae_decode
 from modules.prompt_handler import parse_timestamped_prompt
 from modules.generators import create_model_generator
 from modules.pipelines.video_tools import combine_videos_sequentially_from_tensors
+from modules.pipelines import keyframes, section_checkpoint
+from modules.pipelines import motion_reference
+from modules.pipelines import flow_noise
 from modules import DUMMY_LORA_NAME  # Import the constant
 from modules.llm_captioner import unload_captioning_model
 from modules.llm_enhancer import unload_enhancing_model
@@ -128,6 +131,18 @@ def worker(
     combine_with_source=None,  # Add combine_with_source parameter
     num_cleaned_frames=5,  # Add num_cleaned_frames parameter with default value
     save_metadata_checked=True,  # Add save_metadata_checked parameter
+    save_section_latents=True,  # Save a checkpoint so sections can be re-rolled later
+    reroll_latents_path=None,  # Section checkpoint to re-roll from
+    reroll_from_section=None,  # 1-based section (generation order) to regenerate from
+    keyframe_images=None,  # Mid-video keyframe images (Original models)
+    keyframe_times=None,  # Seconds at which each keyframe should appear
+    motion_reference_video=None,  # Path to a video whose motion and layout to follow
+    motion_reference_strength=0.5,  # 0..1: how much of the denoising to start from it
+    motion_reference_start=0.0,  # Seconds into the reference to start from
+    flow_noise_arrows=None,  # Drag arrows [(x0, y0, x1, y1)] in 0..1 image coords
+    flow_noise_camera="None",  # Camera move preset, see flow_noise.CAMERA_MOVES
+    flow_noise_camera_amount=0.3,  # Fraction of the frame the camera travels
+    flow_noise_strength=0.7,  # How much of each frame's noise follows the motion
 ):
     """
     Worker function for video generation.
@@ -317,6 +332,18 @@ def worker(
             "combine_with_source": combine_with_source,
             "num_cleaned_frames": num_cleaned_frames,
             "save_metadata_checked": save_metadata_checked,  # Ensure it's in job_params for internal use
+            "save_section_latents": save_section_latents,
+            "reroll_latents_path": reroll_latents_path,
+            "reroll_from_section": reroll_from_section,
+            "keyframe_images": keyframe_images,
+            "keyframe_times": keyframe_times,
+            "motion_reference_video": motion_reference_video,
+            "motion_reference_strength": motion_reference_strength,
+            "motion_reference_start": motion_reference_start,
+            "flow_noise_arrows": flow_noise_arrows,
+            "flow_noise_camera": flow_noise_camera,
+            "flow_noise_camera_amount": flow_noise_camera_amount,
+            "flow_noise_strength": flow_noise_strength,
         }
 
         # Validate parameters
@@ -763,6 +790,85 @@ def worker(
                     )
                     # Need that dtype conversion for end_clip_embedding? I don't think so, but it was in the original PR.
 
+        # KEYFRAMES: VAE + CLIP Vision encode mid-video keyframes, in time order
+        keyframe_boundaries = []
+        keyframe_latents = []
+        keyframe_clip_embeddings = []
+        if keyframe_images and model_type not in keyframes.KEYFRAME_MODEL_TYPES:
+            logger.warning(f"Keyframes are not supported for {model_type}; ignoring.")
+        elif keyframe_images:
+            snapped = keyframes.snap_keyframe_times(
+                keyframe_times or [], total_latent_sections, latent_window_size
+            )
+            if len(snapped) < len(keyframe_images):
+                logger.warning(
+                    f"Using {len(snapped)} of {len(keyframe_images)} keyframes; the rest "
+                    "fell on the start/end of the video or on the same section."
+                )
+            if snapped:
+                if not high_vram:
+                    load_model_as_complete(vae, target_device=gpu)
+                    load_model_as_complete(image_encoder, target_device=gpu)
+                from diffusers_helper.hunyuan import vae_encode
+                from diffusers_helper.clip_vision import hf_clip_vision_encode
+
+            for boundary, idx in snapped:
+                keyframe_np = resize_and_center_crop(
+                    np.array(keyframe_images[idx])[..., :3], width, height
+                )
+                keyframe_pt = torch.from_numpy(keyframe_np).float() / 127.5 - 1
+                keyframe_pt = keyframe_pt.permute(2, 0, 1)[None, :, None]
+                keyframe_boundaries.append(boundary)
+                keyframe_latents.append(vae_encode(keyframe_pt, vae))
+                keyframe_clip_embeddings.append(
+                    hf_clip_vision_encode(
+                        keyframe_np, feature_extractor, image_encoder
+                    ).last_hidden_state.to(
+                        studio_module.current_generator.transformer.dtype
+                    )
+                )
+                logger.debug(
+                    f"Keyframe {idx + 1} snapped to the start of section {boundary + 1}"
+                )
+
+        # MOTION REFERENCE: encode the reference video along the output timeline
+        reference_latents = None
+        reference_strength = min(float(motion_reference_strength or 0.0), 1.0)
+        if motion_reference_video and reference_strength > 0:
+            if model_type not in motion_reference.MOTION_REFERENCE_MODEL_TYPES:
+                logger.warning(
+                    f"Motion reference is not supported for {model_type}; ignoring."
+                )
+            else:
+                stream_to_use.output_queue.push(
+                    (
+                        "progress",
+                        (
+                            None,
+                            "",
+                            make_progress_bar_html(0, "Encoding motion reference ..."),
+                        ),
+                    )
+                )
+                if not high_vram:
+                    load_model_as_complete(vae, target_device=gpu)
+                reference_frames = motion_reference.read_video_frames(
+                    motion_reference_video,
+                    width,
+                    height,
+                    max_frames=motion_reference.frames_needed(
+                        total_latent_sections, latent_window_size, has_input_image
+                    ),
+                    start_seconds=float(motion_reference_start or 0.0),
+                )
+                reference_latents = motion_reference.encode_frames(
+                    reference_frames, vae
+                )
+                logger.debug(
+                    f"Motion reference: {len(reference_frames)} frames -> "
+                    f"latents {tuple(reference_latents.shape)}"
+                )
+
         if not high_vram:  # Offload VAE and image_encoder if they were loaded
             offload_model_from_device_for_memory_preservation(
                 vae,
@@ -833,8 +939,83 @@ def worker(
             total_latent_sections
         )
 
+        # KEYFRAMES: each keyframe starts a segment with its own padding schedule
+        section_plans = None
+        if keyframe_boundaries:
+            section_plans = keyframes.plan_sections(
+                studio_module.current_generator.get_latent_paddings,
+                total_latent_sections,
+                keyframe_boundaries,
+            )
+            latent_paddings = [plan.padding for plan in section_plans]
+
         # PROMPT BLENDING: Track section index
         section_idx = 0
+
+        # SECTION RE-ROLL: restore the state from before the first re-rolled section
+        resume_section = 0
+        section_frames = []  # latent frames produced per section, in generation order
+        if reroll_latents_path:
+            ckpt = section_checkpoint.load_section_checkpoint(reroll_latents_path)
+            section_checkpoint.validate_checkpoint(
+                ckpt,
+                model_type,
+                height,
+                width,
+                latent_window_size,
+                latent_paddings,
+                has_input_image,
+                int(reroll_from_section or 0),
+            )
+            resume_section = int(reroll_from_section) - 1
+            history_latents, section_frames = section_checkpoint.history_before_section(
+                ckpt, resume_section, init_len=history_latents.shape[2]
+            )
+            total_generated_latent_frames += sum(section_frames)
+            # Reuse the original conditioning so kept and re-rolled sections match
+            start_latent = ckpt["start_latent"].to(start_latent)
+            image_encoder_last_hidden_state = ckpt["image_embeddings"].to(
+                image_encoder_last_hidden_state
+            )
+            logger.info(
+                f"Re-rolling from section {resume_section + 1}: keeping "
+                f"{len(section_frames)} sections ({sum(section_frames)} latent frames)"
+            )
+        # FLOW NOISE: starting noise for the whole video, warped along the motion
+        motion_noise = None
+        wants_motion = bool(flow_noise_arrows) or (
+            flow_noise_camera not in (None, "None") and flow_noise_camera_amount > 0
+        )
+        if wants_motion and flow_noise_strength > 0:
+            if model_type not in flow_noise.FLOW_NOISE_MODEL_TYPES:
+                logger.warning(
+                    f"Flow noise is not supported for {model_type}; ignoring."
+                )
+            else:
+                total_frames = int(has_input_image) + len(latent_paddings) * (
+                    (num_frames + 3) // 4
+                )
+                latent_h, latent_w = height // 8, width // 8
+                velocity = flow_noise.camera_velocity(
+                    flow_noise_camera or "None",
+                    float(flow_noise_camera_amount),
+                    latent_h,
+                    latent_w,
+                    total_frames,
+                ) + flow_noise.arrow_velocity(
+                    flow_noise_arrows, latent_h, latent_w, total_frames
+                )
+                motion_noise = flow_noise.warped_noise(
+                    velocity,
+                    total_frames,
+                    channels=16,
+                    generator=torch.Generator("cpu").manual_seed(seed),
+                    strength=min(float(flow_noise_strength), 1.0),
+                )
+                logger.debug(
+                    f"Flow noise: {total_frames} frames, max speed "
+                    f"{velocity.norm(dim=0).max():.2f} latent px/frame"
+                )
 
         # Load LoRAs if selected
         if selected_loras:
@@ -1058,17 +1239,66 @@ def worker(
             )
             studio_module.current_generator.transformer.uninstall_magcache()
 
+        def save_checkpoint():
+            # Written once, when the job finishes or is cancelled: the state before
+            # any section is a slice of the final history, so per-section writes
+            # would only cost disk I/O.
+            if not (
+                save_section_latents
+                and section_frames
+                and model_type in section_checkpoint.REROLL_MODEL_TYPES
+            ):
+                return
+            try:
+                section_checkpoint.save_section_checkpoint(
+                    section_checkpoint.checkpoint_path(output_dir, job_id),
+                    model_type=model_type,
+                    height=height,
+                    width=width,
+                    latent_window_size=latent_window_size,
+                    latent_paddings=list(latent_paddings),
+                    has_input_image=has_input_image,
+                    history_latents=history_latents,
+                    section_frames=section_frames,
+                    start_latent=start_latent,
+                    image_embeddings=image_encoder_last_hidden_state,
+                    seed=seed,
+                    prompt_text=prompt_text,
+                )
+            except Exception as e:
+                logger.error(f"Error saving section checkpoint: {e}")
+
         # --- Main generation loop ---
         # `i_section_loop` will be our loop counter for applying end_frame_latent
         for i_section_loop, latent_padding in enumerate(
             latent_paddings
         ):  # Existing loop structure
-            is_last_section = latent_padding == 0
+            plan = section_plans[i_section_loop] if section_plans else None
+            starts_at_keyframe = plan is not None and plan.starts_at_keyframe
+            is_last_section = latent_padding == 0 and not starts_at_keyframe
+            if plan is not None and plan.anchor > 0:
+                anchor_latent = keyframe_latents[plan.anchor - 1]
+                anchor_clip_embedding = keyframe_clip_embeddings[plan.anchor - 1]
+            else:
+                anchor_latent = start_latent
+                anchor_clip_embedding = image_encoder_last_hidden_state
             latent_padding_size = latent_padding * latent_window_size
 
             if stream_to_use.input_queue.top() == "end":
+                save_checkpoint()
                 stream_to_use.output_queue.push(("end", None))
                 return
+
+            if i_section_loop < resume_section:
+                # Kept section: draw the noise it would have used so the RNG stream,
+                # and therefore every re-rolled section, matches a full run.
+                torch.randn(
+                    (1, 16, (num_frames + 3) // 4, height // 8, width // 8),
+                    generator=random_generator,
+                    device=random_generator.device,
+                )
+                section_idx += 1
+                continue
 
             # Calculate the current time position
             if model_type == "Video":
@@ -1280,7 +1510,7 @@ def worker(
                 # Prepare clean latents using the generator
                 clean_latents, clean_latents_2x, clean_latents_4x = (
                     studio_module.current_generator.prepare_clean_latents(
-                        start_latent, history_latents
+                        anchor_latent, history_latents
                     )
                 )
 
@@ -1312,8 +1542,39 @@ def worker(
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
 
+            # MOTION REFERENCE: start denoising part-way from the reference slice
+            initial_latent = None
+            denoise_strength = 1.0
+            if reference_latents is not None:
+                initial_latent = motion_reference.section_slice(
+                    reference_latents,
+                    i_section_loop,
+                    len(latent_paddings),
+                    latent_window_size,
+                    has_input_image,
+                    reverse_order=model_type in ("Original", "Original with Endframe"),
+                )
+                # Skip at most half the steps; with the flow shift that still
+                # starts from sigma ~0.85, so only motion and layout carry over
+                # and the prompt decides the look.
+                denoise_strength = 1.0 - 0.5 * reference_strength
+
+            section_noise = None
+            if motion_noise is not None:
+                section_noise = flow_noise.section_slice(
+                    motion_noise,
+                    i_section_loop,
+                    len(latent_paddings),
+                    (num_frames + 3) // 4,
+                    has_input_image,
+                    reverse_order=model_type in ("Original", "Original with Endframe"),
+                )
+
             generated_latents = sample_hunyuan(
                 transformer=studio_module.current_generator.transformer,
+                initial_latent=initial_latent,
+                strength=denoise_strength,
+                noise=section_noise,
                 width=width,
                 height=height,
                 frames=num_frames,
@@ -1330,7 +1591,7 @@ def worker(
                 negative_prompt_poolers=clip_l_pooler_n,
                 device=gpu,
                 dtype=torch.bfloat16,
-                image_embeddings=image_encoder_last_hidden_state,
+                image_embeddings=anchor_clip_embedding,
                 latent_indices=latent_indices,
                 clean_latents=clean_latents,
                 clean_latent_indices=clean_latent_indices,
@@ -1346,13 +1607,16 @@ def worker(
             # if magcache is not None and magcache.is_enabled:
             #     print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
 
-            if (
+            prepends_anchor = starts_at_keyframe or (
                 model_type in ("Original", "Original with Endframe")
                 and has_input_image
                 and is_last_section
-            ):
+            )
+            if prepends_anchor:
+                # The section before this one (generated next) sees the anchor as
+                # its post latent, which is how keyframes are hit exactly.
                 generated_latents = torch.cat(
-                    [start_latent.to(generated_latents), generated_latents], dim=2
+                    [anchor_latent.to(generated_latents), generated_latents], dim=2
                 )
 
             total_generated_latent_frames += int(generated_latents.shape[2])
@@ -1360,6 +1624,7 @@ def worker(
             history_latents = studio_module.current_generator.update_history_latents(
                 history_latents, generated_latents
             )
+            section_frames.append(int(generated_latents.shape[2]))
 
             if not high_vram:
                 if selected_loras:
@@ -1383,9 +1648,7 @@ def worker(
             else:
                 section_latent_frames = (
                     (latent_window_size * 2 + 1)
-                    if model_type in ("Original", "Original with Endframe")
-                    and has_input_image
-                    and is_last_section
+                    if prepends_anchor
                     else studio_module.current_generator.get_section_latent_frames(
                         latent_window_size, is_last_section
                     )
@@ -1428,6 +1691,8 @@ def worker(
             # We'll handle combining the videos after the entire generation is complete
             # This section intentionally left empty to remove the in-process combination
             # --- END Main generation loop ---
+
+        save_checkpoint()
 
         magcache = studio_module.current_generator.transformer.magcache
         if magcache is not None:

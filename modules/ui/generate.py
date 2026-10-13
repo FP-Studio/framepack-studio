@@ -11,10 +11,52 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.xy_plot_ui import create_xy_plot_ui
 from modules.llm_enhancer import enhance_prompt, stop_enhancing
 from modules.llm_captioner import caption_image, stop_captioning
+from modules.pipelines import section_checkpoint
+from modules.pipelines.flow_noise import CAMERA_MOVES
 
 PRESET_FILE = os.path.join(".framepack", "generation_presets.json")
+NUM_KEYFRAME_SLOTS = 3
 
 logger = logging.getLogger(__name__)
+
+SKETCH_PLACEHOLDER = np.full((360, 640, 3), 96, dtype=np.uint8)
+
+
+def draw_motion_sketch(image, arrows, pending):
+    """Render drag arrows (0..1 coords) and a pending start point on the image."""
+    from PIL import ImageDraw
+
+    base = Image.fromarray(image if image is not None else SKETCH_PLACEHOLDER)
+    base = base.convert("RGB")
+    w, h = base.size
+    draw = ImageDraw.Draw(base)
+    width = max(2, round(min(w, h) / 120))
+    for x0, y0, x1, y1 in arrows or []:
+        p0, p1 = np.array([x0 * w, y0 * h]), np.array([x1 * w, y1 * h])
+        draw.line([tuple(p0), tuple(p1)], fill=(255, 220, 0), width=width)
+        direction = p1 - p0
+        length = np.linalg.norm(direction)
+        if length > 0:
+            unit = direction / length
+            normal = np.array([-unit[1], unit[0]])
+            head = max(8, min(w, h) / 25)
+            draw.polygon(
+                [
+                    tuple(p1),
+                    tuple(p1 - unit * head + normal * head / 2),
+                    tuple(p1 - unit * head - normal * head / 2),
+                ],
+                fill=(255, 220, 0),
+            )
+        r = width * 2
+        draw.ellipse([p0[0] - r, p0[1] - r, p0[0] + r, p0[1] + r], fill=(255, 220, 0))
+    if pending is not None:
+        px, py = pending[0] * w, pending[1] * h
+        r = width * 3
+        draw.ellipse(
+            [px - r, py - r, px + r, py + r], outline=(0, 255, 255), width=width
+        )
+    return np.array(base)
 
 
 def load_presets(model_type):
@@ -232,6 +274,144 @@ def create_generate_ui(
                         label="Randomize",
                         value=True,
                         info="Generate a new random seed for each job",
+                    )
+                with gr.Accordion("Keyframes (Original models)", open=False):
+                    gr.Markdown(
+                        "Pin images the video should pass through. Each keyframe "
+                        "snaps to the nearest section boundary and starts a new "
+                        "segment, like an extra start/end frame. Only used by "
+                        "Original and Original with Endframe."
+                    )
+                    keyframe_images = []
+                    keyframe_times = []
+                    with gr.Row():
+                        for i in range(NUM_KEYFRAME_SLOTS):
+                            with gr.Column(min_width=120):
+                                keyframe_images.append(
+                                    gr.Image(
+                                        sources="upload",
+                                        type="numpy",
+                                        label=f"Keyframe {i + 1}",
+                                        elem_classes="contain-image",
+                                        image_mode="RGB",
+                                        show_download_button=False,
+                                        height=160,
+                                    )
+                                )
+                                keyframe_times.append(
+                                    gr.Number(
+                                        label="At (seconds)",
+                                        value=round(2.0 * (i + 1), 1),
+                                        minimum=0,
+                                        step=0.1,
+                                    )
+                                )
+                with gr.Accordion("Section Re-roll", open=False):
+                    gr.Markdown(
+                        "Regenerate a finished (or cancelled) job from one section "
+                        "onward and keep everything generated before it. Use the same "
+                        "model, resolution, length and latent window size as the "
+                        "original job; prompt, seed and LoRAs can change. Same seed "
+                        "and prompt reproduce the original exactly.\n\n"
+                        "Original models generate from the end of the video backwards, "
+                        "so later section numbers cover *earlier* times."
+                    )
+                    save_section_latents = gr.Checkbox(
+                        label="Save section latents",
+                        value=True,
+                        info="Needed to re-roll this job later. About 3 MB per second of "
+                        "video at 640x640.",
+                    )
+                    with gr.Row():
+                        reroll_job = gr.Dropdown(
+                            label="Job to re-roll",
+                            choices=[],
+                            value=None,
+                            scale=10,
+                            info="Leave empty for a normal generation.",
+                        )
+                        reroll_refresh_btn = gr.Button("🔄", scale=1, min_width=40)
+                    reroll_section = gr.Dropdown(
+                        label="Regenerate from section",
+                        choices=[],
+                        value=None,
+                        info="Sections are listed in generation order.",
+                    )
+                with gr.Accordion("Motion Reference", open=False):
+                    gr.Markdown(
+                        "Follow the motion and layout of another video. Generation "
+                        "starts part-way from the reference, so where things are and "
+                        "how they move carry over while the prompt and start frame "
+                        "decide what they look like. Works with Original, Original "
+                        "with Endframe and F1."
+                    )
+                    motion_reference_video = gr.Video(
+                        sources="upload", label="Reference Video", height=240
+                    )
+                    motion_reference_start = gr.Number(
+                        label="Start at (seconds)",
+                        value=0,
+                        minimum=0,
+                        step=0.1,
+                        info="Where in the reference to start. A single shot works "
+                        "best; cuts in the reference become cuts in the video.",
+                    )
+                    motion_reference_strength = gr.Slider(
+                        label="Reference Strength",
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.5,
+                        step=0.05,
+                        info="How closely to follow the reference. Higher values also "
+                        "copy more of its shapes and framing.",
+                    )
+                # Hidden: warped noise breaks the real model even at low strength
+                # (tested on HunyuanVideo FramePack). Needs a fine-tuned model.
+                with gr.Accordion(
+                    "Motion Sketch (experimental)", open=False, visible=False
+                ):
+                    gr.Markdown(
+                        "Click on the start frame to begin an arrow, then click where "
+                        "that content should end up. Arrows and camera moves steer the "
+                        "starting noise along the motion; they bias the model rather "
+                        "than force it. Works with Original, Original with Endframe "
+                        "and F1."
+                    )
+                    flow_noise_canvas = gr.Image(
+                        value=SKETCH_PLACEHOLDER,
+                        type="numpy",
+                        interactive=False,
+                        label="Motion arrows",
+                        show_download_button=False,
+                        show_fullscreen_button=False,
+                    )
+                    flow_noise_arrows = gr.State([])
+                    flow_noise_pending = gr.State(None)
+                    with gr.Row():
+                        flow_noise_undo_btn = gr.Button("↩ Undo arrow")
+                        flow_noise_clear_btn = gr.Button("🗑 Clear arrows")
+                    with gr.Row():
+                        flow_noise_camera = gr.Dropdown(
+                            label="Camera Move",
+                            choices=list(CAMERA_MOVES),
+                            value="None",
+                        )
+                        flow_noise_camera_amount = gr.Slider(
+                            label="Camera Amount",
+                            minimum=0.0,
+                            maximum=1.0,
+                            value=0.3,
+                            step=0.05,
+                            info="Fraction of the frame the camera travels.",
+                        )
+                    flow_noise_strength = gr.Slider(
+                        label="Motion Strength",
+                        minimum=0.0,
+                        maximum=1.0,
+                        value=0.7,
+                        step=0.05,
+                        info="How much of each frame's noise follows the motion. "
+                        "High values can freeze texture in place.",
                     )
                 with gr.Accordion("LoRAs", open=False):
                     with gr.Row():
@@ -460,6 +640,23 @@ def create_generate_ui(
         "input_video": input_video,
         "combine_with_source": combine_with_source,
         "num_cleaned_frames": num_cleaned_frames,
+        "save_section_latents": save_section_latents,
+        "reroll_job": reroll_job,
+        "reroll_refresh_btn": reroll_refresh_btn,
+        "reroll_section": reroll_section,
+        "keyframe_images": keyframe_images,
+        "keyframe_times": keyframe_times,
+        "motion_reference_video": motion_reference_video,
+        "motion_reference_strength": motion_reference_strength,
+        "motion_reference_start": motion_reference_start,
+        "flow_noise_canvas": flow_noise_canvas,
+        "flow_noise_arrows": flow_noise_arrows,
+        "flow_noise_pending": flow_noise_pending,
+        "flow_noise_undo_btn": flow_noise_undo_btn,
+        "flow_noise_clear_btn": flow_noise_clear_btn,
+        "flow_noise_camera": flow_noise_camera,
+        "flow_noise_camera_amount": flow_noise_camera_amount,
+        "flow_noise_strength": flow_noise_strength,
         "end_frame_group_original": end_frame_group_original,
         "end_frame_image_original": end_frame_image_original,
         "end_frame_slider_group": end_frame_slider_group,
@@ -593,9 +790,29 @@ def connect_generate_events(g, s, q, f):
             resolutionH_arg,
             combine_with_source_arg,
             num_cleaned_frames_arg,
-            lora_names_states_arg,
-            *lora_slider_values_tuple,
+            flow_noise_arrows_arg,
+            flow_noise_camera_arg,
+            flow_noise_camera_amount_arg,
+            flow_noise_strength_arg,
+            motion_reference_video_arg,
+            motion_reference_strength_arg,
+            motion_reference_start_arg,
+            save_section_latents_arg,
+            reroll_job_arg,
+            reroll_section_arg,
+            *rest,
         ) = args
+        keyframe_args = rest[: 2 * NUM_KEYFRAME_SLOTS]
+        lora_names_states_arg, *lora_slider_values_tuple = rest[
+            2 * NUM_KEYFRAME_SLOTS :
+        ]
+        keyframe_pairs = [
+            (image, time)
+            for image, time in zip(
+                keyframe_args[:NUM_KEYFRAME_SLOTS], keyframe_args[NUM_KEYFRAME_SLOTS:]
+            )
+            if image is not None and time is not None
+        ]
         backend_model_type = (
             "Video" if model_type_arg == "Video with Endframe" else model_type_arg
         )
@@ -658,6 +875,18 @@ def connect_generate_events(g, s, q, f):
             num_cleaned_frames_arg,
             lora_names_states_arg,
             *lora_slider_values_tuple,
+            save_section_latents=save_section_latents_arg,
+            reroll_latents_path=reroll_job_arg or None,
+            reroll_from_section=reroll_section_arg if reroll_job_arg else None,
+            keyframe_images=[image for image, _ in keyframe_pairs] or None,
+            keyframe_times=[float(time) for _, time in keyframe_pairs] or None,
+            motion_reference_video=motion_reference_video_arg,
+            motion_reference_strength=motion_reference_strength_arg,
+            motion_reference_start=motion_reference_start_arg,
+            flow_noise_arrows=[tuple(a) for a in flow_noise_arrows_arg or []] or None,
+            flow_noise_camera=flow_noise_camera_arg,
+            flow_noise_camera_amount=flow_noise_camera_amount_arg,
+            flow_noise_strength=flow_noise_strength_arg,
         )
         new_seed_value = random.randint(0, 21474) if randomize_seed_arg else None
         if new_seed_value:
@@ -729,8 +958,100 @@ def connect_generate_events(g, s, q, f):
         g["resolutionH"],
         g["combine_with_source"],
         g["num_cleaned_frames"],
+        g["flow_noise_arrows"],
+        g["flow_noise_camera"],
+        g["flow_noise_camera_amount"],
+        g["flow_noise_strength"],
+        g["motion_reference_video"],
+        g["motion_reference_strength"],
+        g["motion_reference_start"],
+        g["save_section_latents"],
+        g["reroll_job"],
+        g["reroll_section"],
+        *g["keyframe_images"],
+        *g["keyframe_times"],
         g["lora_names_states"],
     ] + list(g["lora_sliders"].values())
+
+    def refresh_reroll_jobs():
+        choices = []
+        for path in section_checkpoint.list_checkpoints(
+            f["settings"].get("output_dir")
+        ):
+            label = section_checkpoint.checkpoint_label(path)
+            if label:
+                choices.append((label, path))
+        return gr.update(choices=choices, value=None), gr.update(choices=[], value=None)
+
+    def on_reroll_job_change(path):
+        if not path:
+            return gr.update(choices=[], value=None)
+        try:
+            ckpt = section_checkpoint.load_summary(path)
+        except ValueError as e:
+            gr.Warning(str(e))
+            return gr.update(choices=[], value=None)
+        choices = section_checkpoint.section_choices(ckpt)
+        return gr.update(choices=choices, value=choices[-1][1] if choices else None)
+
+    g["reroll_refresh_btn"].click(
+        fn=refresh_reroll_jobs,
+        inputs=None,
+        outputs=[g["reroll_job"], g["reroll_section"]],
+    )
+    g["reroll_job"].change(
+        fn=on_reroll_job_change,
+        inputs=[g["reroll_job"]],
+        outputs=[g["reroll_section"]],
+    )
+
+    def on_sketch_click(image, arrows, pending, evt: gr.SelectData):
+        h, w = (image if image is not None else SKETCH_PLACEHOLDER).shape[:2]
+        point = (
+            min(max(evt.index[0] / max(w - 1, 1), 0.0), 1.0),
+            min(max(evt.index[1] / max(h - 1, 1), 0.0), 1.0),
+        )
+        arrows = list(arrows or [])
+        if pending is None:
+            pending = point
+        else:
+            arrows.append((*pending, *point))
+            pending = None
+        return draw_motion_sketch(image, arrows, pending), arrows, pending
+
+    def on_sketch_undo(image, arrows, pending):
+        arrows = list(arrows or [])
+        if pending is None and arrows:
+            arrows.pop()
+        return draw_motion_sketch(image, arrows, None), arrows, None
+
+    def on_sketch_clear(image):
+        return draw_motion_sketch(image, [], None), [], None
+
+    sketch_outputs = [
+        g["flow_noise_canvas"],
+        g["flow_noise_arrows"],
+        g["flow_noise_pending"],
+    ]
+    g["flow_noise_canvas"].select(
+        fn=on_sketch_click,
+        inputs=[g["input_image"], g["flow_noise_arrows"], g["flow_noise_pending"]],
+        outputs=sketch_outputs,
+    )
+    g["flow_noise_undo_btn"].click(
+        fn=on_sketch_undo,
+        inputs=[g["input_image"], g["flow_noise_arrows"], g["flow_noise_pending"]],
+        outputs=sketch_outputs,
+    )
+    g["flow_noise_clear_btn"].click(
+        fn=on_sketch_clear, inputs=[g["input_image"]], outputs=sketch_outputs
+    )
+    # Arrows are stored in 0..1 coordinates, so they survive a new start frame
+    g["input_image"].change(
+        fn=lambda image, arrows: draw_motion_sketch(image, arrows, None),
+        inputs=[g["input_image"], g["flow_noise_arrows"]],
+        outputs=[g["flow_noise_canvas"]],
+    )
 
     def handle_start_button(selected_model, *args):
         return process_with_queue_update(selected_model, *args)
