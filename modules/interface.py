@@ -31,6 +31,7 @@ from modules.ui.queue import (
     update_queue_status_with_thumbnails,
 )
 from modules.ui.settings import connect_settings_events, create_settings_ui
+from modules.ui.timeline_model import apply_progress, job_direction
 from modules.version import APP_VERSION_DISPLAY
 from modules.video_queue import JobStatus
 
@@ -43,6 +44,34 @@ STATS_HTML = """
   <div class="stat-card gpu"><span class="stat-label">GPU</span><span class="stat-value"></span><div class="stat-bar"><span class="fill"></span></div></div>
 </div>
 """
+
+
+# Discord's logo mark (Simple Icons), drawn in the current text colour
+DISCORD_ICON = (
+    '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" '
+    'aria-hidden="true"><path d="'
+    "M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00"
+    "-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68"
+    "-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 "
+    "00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-."
+    "0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00"
+    ".0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 "
+    "0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 "
+    "00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0"
+    " 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 0"
+    "1.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01"
+    ".0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276"
+    " 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604"
+    ".698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.606"
+    "7 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.1"
+    "77-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 1"
+    "5.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189"
+    " 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555"
+    " 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2"
+    ".419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2"
+    ".1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z"
+    '"/></svg>'
+)
 
 
 def _read(path):
@@ -79,9 +108,10 @@ def create_interface(
     enumerate_lora_dir_fn=None,
 ):
     css = make_progress_bar_css() + _read("modules/ui/styles.css")
-    head = f"<script>{_read('modules/ui/queue_actions.js')}</script>"
-    patreon_svg = _read("patreon.svg") or "Patreon"
-    discord_svg = _read("discord.svg") or "Discord"
+    head = (
+        f"<script>{_read('modules/ui/queue_actions.js')}</script>"
+        f"<script>{_read('modules/ui/timeline_sync.js')}</script>"
+    )
 
     def counts():
         jobs = job_queue.get_all_jobs()
@@ -143,10 +173,10 @@ def create_interface(
             gr.HTML(STATS_HTML, elem_classes="header-stats")
             toolbar_stats_vars = gr.HTML("", elem_id="toolbar-stats-vars-wrapper")
             gr.HTML(
-                f"<div class='header-links'>"
-                f"<a href='https://patreon.com/Colinu' target='_blank' title='Support on Patreon'>{patreon_svg}</a>"
-                f"<a href='https://discord.com/invite/MtuM7gFJ3V' target='_blank' title='Discord'>{discord_svg}</a>"
-                f"</div>",
+                "<div class='header-links'>"
+                "<a href='https://discord.com/invite/MtuM7gFJ3V' target='_blank'"
+                f" title='Discord' aria-label='Discord'>{DISCORD_ICON}</a>"
+                "</div>",
                 elem_classes="header-links-wrap",
             )
 
@@ -244,6 +274,28 @@ def create_interface(
         timer.tick(fn=tb_get_formatted_toolbar_stats, outputs=[toolbar_stats_vars])
         timer.tick(fn=poll_stats, outputs=stats_outputs, show_progress="hidden")
         timer.tick(fn=poll_library, outputs=library_outputs, show_progress="hidden")
+
+        def timeline_progress(value):
+            # Show which section the running job is on in the Create timeline
+            with job_queue.lock:
+                job = job_queue.current_job
+                running = job is not None and job.status == JobStatus.RUNNING
+                progress = (job.progress_data or {}) if running else {}
+                model_type = (job.params or {}).get("model_type") if running else None
+            marked = apply_progress(
+                value,
+                progress.get("section"),
+                progress.get("sections"),
+                job_direction(model_type),
+            )
+            return gr.update() if marked is None else marked
+
+        timer.tick(
+            fn=timeline_progress,
+            inputs=[g["timeline"]],
+            outputs=[g["timeline"]],
+            show_progress="hidden",
+        )
 
         # Startup: attach to a running job, apply the startup model/preset,
         # then bring every derived view (motion gating, timeline, checks) in line.

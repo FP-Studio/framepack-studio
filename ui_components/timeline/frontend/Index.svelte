@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import type { Gradio, SelectData } from "@gradio/utils";
 
 	type Section = { start: number; end: number; order?: number; state?: string };
@@ -51,6 +52,19 @@
 	let track_width = 600;
 	let frames_track: HTMLDivElement;
 	let drag: { i: number; t: number; moved: boolean } | null = null;
+	// Playback position (seconds) pushed by the page, e.g. from a video player:
+	// window.dispatchEvent(new CustomEvent("fps-timeline-playhead",
+	//   { detail: { elem_id, t } }))  — t = null hides it.
+	let playhead: number | null = null;
+
+	onMount(() => {
+		const on_playhead = (e: Event) => {
+			const d = (e as CustomEvent).detail ?? {};
+			if (d.elem_id === elem_id) playhead = typeof d.t === "number" ? d.t : null;
+		};
+		window.addEventListener("fps-timeline-playhead", on_playhead);
+		return () => window.removeEventListener("fps-timeline-playhead", on_playhead);
+	});
 
 	$: duration = value && value.duration > 0 ? value.duration : 0;
 	$: sections = value?.sections ?? [];
@@ -150,8 +164,14 @@
 	}
 
 	function select_section(i: number) {
-		if (!value?.selectable) return;
 		const s = sections[i];
+		if (!value?.selectable) {
+			// Not a selection, but the page may want to jump a player there
+			window.dispatchEvent(
+				new CustomEvent("fps-timeline-seek", { detail: { elem_id, t: s.start, index: i } })
+			);
+			return;
+		}
 		value = { ...value, selected_section: i };
 		gradio.dispatch("select", {
 			index: i,
@@ -213,6 +233,7 @@
 						{#if s.order != null && w >= 16}<span class="order">{s.order}</span>{/if}
 					</button>
 				{/each}
+				{#if playhead != null}<div class="playhead" style:left={pct(playhead)}></div>{/if}
 			</div>
 
 			<!-- prompts -->
@@ -241,6 +262,7 @@
 						></div>
 					{/each}
 				{/if}
+				{#if playhead != null}<div class="playhead" style:left={pct(playhead)}></div>{/if}
 			</div>
 
 			<!-- frames -->
@@ -251,6 +273,7 @@
 				bind:this={frames_track}
 			>
 				<div class="axis"></div>
+				{#if playhead != null}<div class="playhead" style:left={pct(playhead)}></div>{/if}
 				{#each frames as f, i}
 					{@const t = drag && drag.i === i ? drag.t : f.t}
 					{@const draggable = editable && f.kind === "key"}
@@ -455,6 +478,40 @@
 			),
 			color-mix(in srgb, var(--color-accent) 12%, transparent);
 		color: var(--color-accent);
+	}
+	.cell.done {
+		background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+		color: var(--color-accent);
+	}
+	.cell.generating {
+		background: repeating-linear-gradient(
+				-45deg,
+				color-mix(in srgb, var(--color-accent) 45%, transparent) 0 4px,
+				color-mix(in srgb, var(--color-accent) 15%, transparent) 4px 8px
+			);
+		background-size: 22px 22px;
+		color: var(--color-accent);
+		animation: fps-generating 1s linear infinite;
+	}
+	@keyframes fps-generating {
+		to {
+			background-position: 22px 0;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.cell.generating {
+			animation: none;
+		}
+	}
+	.playhead {
+		position: absolute;
+		top: -2px;
+		bottom: -2px;
+		width: 2px;
+		margin-left: -1px;
+		background: var(--body-text-color);
+		pointer-events: none;
+		z-index: 3;
 	}
 	.cell.selected {
 		background: color-mix(in srgb, var(--color-accent) 18%, transparent);

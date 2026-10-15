@@ -68,3 +68,13 @@ FP_REAL_DECORD=1 .venv-cpu/bin/python tests/cpu/studio_fake.py --port 7861 --ser
 
 Without `FP_REAL_DECORD=1`, decord is stubbed and video jobs fail; pass
 `--no-video` to skip that part.
+
+`tools_check.py` does the same for the Tools tab: steps, recipes, batch, Join
+clips and Edit frames on small generated clips. The toolbox looks for ffmpeg
+in `modules/toolbox/bin`, so link the static one there first:
+
+```bash
+FF="$(dirname "$(command -v ffmpeg)")"
+ln -sf "$FF/ffmpeg" "$FF/ffprobe" modules/toolbox/bin/
+.venv-cpu/bin/python tests/cpu/tools_check.py --url http://127.0.0.1:7861/
+```

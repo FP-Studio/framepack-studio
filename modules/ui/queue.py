@@ -105,6 +105,7 @@ def format_queue_status(jobs):
             elapsed=elapsed_time or "--",
             thumbnail=thumbnail_html,
             job_data=job_data,
+            error=job.error if job.status == JobStatus.FAILED else "",
         )
         rows.append(row_html)
 
@@ -120,13 +121,12 @@ def update_queue_status_with_thumbnails():
         for job in jobs:
             if job.status == JobStatus.PENDING:
                 job.queue_position = job_queue.get_queue_position(job.id)
-        if job_queue.current_job:
-            # Only set to RUNNING if not already in a cancellation state
-            if job_queue.current_job.status not in [
-                JobStatus.CANCELLING,
-                JobStatus.CANCELLED,
-            ]:
-                job_queue.current_job.status = JobStatus.RUNNING
+        current = job_queue.current_job
+        if current is not None and current.status == JobStatus.PENDING:
+            # Only a job that's just been picked up is promoted. The queue
+            # thread marks it finished before it clears current_job, so a
+            # finished job must not be flipped back to running here.
+            current.status = JobStatus.RUNNING
 
         # Sort jobs according to the requested priority:
         # 1. Running and Cancelling items first (same job transitioning states)

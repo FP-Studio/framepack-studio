@@ -3,6 +3,7 @@ Template loader utility for UI components.
 Uses Python's built-in string.Template for safe variable substitution.
 """
 
+import html
 import os
 from string import Template
 from typing import Dict, Optional
@@ -281,6 +282,7 @@ def render_queue_row(
     elapsed: str,
     thumbnail: str,
     job_data: dict,
+    error: str = "",
 ) -> str:
     """Render a single queue row."""
     status_class = status.lower()
@@ -317,6 +319,9 @@ def render_queue_row(
         action_label=action_label,
         action_type=action_type,
         action_disabled=action_disabled,
+        error_line=f'<div class="queue-row-error">{html.escape(error)}</div>'
+        if error
+        else "",
     )
 
 

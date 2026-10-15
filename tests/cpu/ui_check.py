@@ -222,10 +222,11 @@ with sync_playwright() as p:
         radio(pg, "Image")
 
     # Presets
-    pg.locator("button", has_text="Save as preset…").first.click()
+    preset_box = pg.locator(".preset-col input").first
+    preset_box.fill("UI check")
+    preset_box.press("Enter")
     time.sleep(1)
-    block(pg, "Preset name").locator("input, textarea").first.fill("UI check")
-    pg.locator(".inline-form button", has_text="Save").first.click()
+    pg.locator("button", has_text="Save preset").first.click()
     time.sleep(2)
     check(
         "a preset saves and is selected",

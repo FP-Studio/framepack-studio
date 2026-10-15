@@ -65,6 +65,16 @@ class MagCache:
                 "WARNING: Resetting MagCache calibration stats for new section. Typically you only want one section per calibration job. Discarding calibration from previsou section."
             )
 
+    def start_section(self, first_step=0):
+        """
+        Optional: call before each section. first_step is the step of the full
+        schedule the section starts at, so mag_ratios line up when a section
+        skips its first steps (img2img). Without it, sections are assumed to
+        run all num_steps steps.
+        """
+        self._init_for_every_section()
+        self.step_index = first_step
+
     def should_skip(self, hidden_states):
         """
         Expected to be called once per step during the forward pass, for the numer of initialized steps.
@@ -98,8 +108,10 @@ class MagCache:
             self.accumulated_err += cur_skip_err
             self.accumulated_steps += 1
             # RT_BORG: Per my conversation with Zehong Ma, this 0.06 could potentially be exposed as another tunable param.
+            # Never skip before this section has a residual of its own
             if (
-                self.accumulated_err <= self.threshold
+                self.previous_residual is not None
+                and self.accumulated_err <= self.threshold
                 and self.accumulated_steps <= self.max_consectutive_skips
                 and np.abs(1 - cur_mag_ratio) <= 0.06
             ):
@@ -145,7 +157,7 @@ class MagCache:
         self.previous_residual = current_residual
 
     def _update_calibration_stats(self, current_residual):
-        if self.step_index >= 1:
+        if self.step_index >= 1 and self.previous_residual is not None:
             norm_ratio = (
                 (
                     current_residual.norm(dim=-1) / self.previous_residual.norm(dim=-1)

@@ -1,5 +1,7 @@
 from modules.pipelines import section_checkpoint
 from modules.ui.timeline_model import (
+    apply_progress,
+    job_direction,
     build_timeline,
     keyframe_times_from_timeline,
     section_count,
@@ -105,3 +107,50 @@ def test_keyframe_times_from_timeline():
 def test_prompts_after_the_end_are_dropped():
     tl = _timeline(total_second_length=1.2, prompt="[0s: wave] [5s: dance]")
     assert [p["text"] for p in tl["prompts"]] == ["wave"]
+
+
+def _progress_timeline(model="Original", reroll=None):
+    return _timeline(model=model, reroll_from_section=reroll)
+
+
+def states(value):
+    return [s["state"] for s in value["sections"]]
+
+
+def test_progress_marks_generation_order():
+    # Original generates backwards: order 1 is the last section in time
+    value = apply_progress(_progress_timeline(), current_section=2, total_sections=5)
+    assert states(value) == ["normal", "normal", "normal", "generating", "done"]
+    value = apply_progress(
+        _progress_timeline("F1"), current_section=2, total_sections=5
+    )
+    assert states(value) == ["done", "generating", "normal", "normal", "normal"]
+
+
+def test_progress_clears_and_skips_mismatched_jobs():
+    marked = apply_progress(_progress_timeline(), 3, 5)
+    cleared = apply_progress(marked)
+    assert set(states(cleared)) == {"normal"}
+    # A job with a different section count isn't drawn on this timeline
+    assert apply_progress(_progress_timeline(), 1, 7) is None
+    # Nothing to change -> None, so the timer sends no update
+    assert apply_progress(cleared) is None
+
+
+def test_progress_leaves_reroll_states_alone():
+    # Every section is "kept" or "regen" while re-rolling; progress doesn't
+    # repaint them, so there's nothing to update
+    timeline = _progress_timeline(reroll=3)
+    assert set(states(timeline)) == {"kept", "regen"}
+    assert apply_progress(timeline, current_section=4, total_sections=5) is None
+
+
+def test_progress_follows_the_running_jobs_direction():
+    # An F1 guide queued from an Original setup fills the timeline front to back
+    value = apply_progress(
+        _progress_timeline(), current_section=2, total_sections=5, direction="forward"
+    )
+    assert states(value) == ["done", "generating", "normal", "normal", "normal"]
+    assert job_direction("F1") == "forward"
+    assert job_direction("Original with Endframe") == "backward"
+    assert job_direction("Video") is None

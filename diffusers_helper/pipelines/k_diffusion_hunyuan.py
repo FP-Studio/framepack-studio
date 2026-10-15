@@ -80,10 +80,12 @@ def sample_hunyuan(
 
     k_model = fm_wrapper(transformer)
 
+    first_step = 0
     if initial_latent is not None:
         # img2img: skip the first (1 - strength) of the steps, like diffusers
         keep = max(1, min(num_inference_steps, round(num_inference_steps * strength)))
-        sigmas = sigmas[num_inference_steps - keep :]
+        first_step = num_inference_steps - keep
+        sigmas = sigmas[first_step:]
         first_sigma = sigmas[0].to(device=device, dtype=torch.float32)
         initial_latent = initial_latent.to(device=device, dtype=torch.float32)
         latents = (
@@ -127,6 +129,10 @@ def sample_hunyuan(
             **(kwargs if negative_kwargs is None else {**kwargs, **negative_kwargs}),
         ),
     )
+
+    if hasattr(transformer, "begin_sampling"):
+        # Step caches must know where in the schedule this section starts
+        transformer.begin_sampling(first_step, len(sigmas) - 1)
 
     if sampler == "unipc":
         results = sample_unipc(

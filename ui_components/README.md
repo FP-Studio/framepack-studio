@@ -1,6 +1,6 @@
 # UI components
 
-This folder holds the source for two Gradio custom components used by the
+This folder holds the source for the Gradio custom components used by the
 Studio UI:
 
 - `timeline/` builds `Timeline`, the section timeline with draggable keyframe
@@ -16,7 +16,7 @@ Those built copies are committed, so running the app needs no Node toolchain.
 
 ## Rebuilding
 
-After changing anything here, rebuild and re-vendor both components with:
+After changing anything here, rebuild and re-vendor all components with:
 
     PYTHON=/path/to/venv/bin/python ui_components/build.sh
 
@@ -32,8 +32,9 @@ hand inside the component folder:
 
 It then copies `backend/<python package>/` to `modules/ui/components/<name>/`
 (`gradio_timeline` becomes `timeline`, `gradio_motioncanvas` becomes
-`motion_canvas`) and removes `.pyi` files and caches. Commit the updated
-`templates/` folders along with the source change. The script leaves the
+`motion_canvas`) and removes `.pyi`
+files and caches. Commit the updated `templates/` folders along with the
+source change. The script leaves the
 editable package installed in the venv; you can uninstall it afterwards, since
 the app uses the vendored copy.
 
@@ -44,3 +45,7 @@ or from `@gradio/statustracker` in the Svelte files. With this toolchain those
 imports are silently dropped from the bundle, and the page fails at runtime
 with `Block is not defined`. The components use plain markup styled with
 Gradio CSS variables instead. A type-only import from `@gradio/utils` is safe.
+
+The same thing happens to imports in a `<script context="module">` block that
+the block itself doesn't use: TypeScript drops them, even when the instance
+script uses them. Keep imports in the script that uses them.

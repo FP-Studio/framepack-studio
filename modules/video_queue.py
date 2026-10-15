@@ -19,8 +19,24 @@ import numpy as np
 from diffusers_helper.thread_utils import AsyncStream
 from modules.pipelines.metadata_utils import create_metadata
 from modules.settings import Settings
+from modules.thumbnails import thumbnail_data_url
 
 logger = logging.getLogger(__name__)
+
+VIDEO_MODEL_TYPES = ("Video", "Video F1")
+QUEUE_IMAGE_TAGS = ("_input.png", "_end_frame.png", "_keyframe_")
+
+
+def _is_queue_image(filename):
+    """{job_id}_input.png, {job_id}_end_frame.png or {job_id}_keyframe_{n}.png"""
+    return filename.endswith(".png") and any(t in filename for t in QUEUE_IMAGE_TAGS)
+
+
+def _keyframe_image_paths(queue_images_dir, job_id, count):
+    return [
+        os.path.join(queue_images_dir, f"{job_id}_keyframe_{i + 1}.png")
+        for i in range(count)
+    ]
 
 
 # Simple LIFO queue implementation to avoid dependency on queue.LifoQueue
@@ -43,6 +59,19 @@ class SimpleLifoQueue:
 
     def task_done(self):
         pass  # For compatibility with queue.Queue
+
+
+def summarize_error(text):
+    """One readable line from a worker traceback, for the queue."""
+    text = str(text or "")
+    if "OutOfMemoryError" in text or "CUDA out of memory" in text:
+        return (
+            "Ran out of GPU memory. Lower the resolution, or raise "
+            "GPU memory preservation in Settings."
+        )
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    message = lines[-1] if lines else "Generation failed"
+    return message if len(message) <= 200 else message[:197] + "..."
 
 
 class JobStatus(Enum):
@@ -85,6 +114,7 @@ class Job:
     end_frame_image_saved: bool = (
         False  # Flag to track if end frame image has been saved
     )
+    keyframe_images_saved: bool = False  # Flag for the mid-video keyframe images
 
     def __post_init__(self):
         # Store generation type
@@ -539,6 +569,21 @@ class VideoJobQueue:
                                 "Error saving end frame image for job %s: %s", job_id, e
                             )
 
+                    # Save mid-video keyframe images the same way
+                    keyframe_images = job.params.get("keyframe_images") or []
+                    if keyframe_images and not job.keyframe_images_saved:
+                        paths = _keyframe_image_paths(
+                            queue_images_dir, job_id, len(keyframe_images)
+                        )
+                        try:
+                            for path, image in zip(paths, keyframe_images):
+                                Image.fromarray(np.asarray(image)).save(path)
+                            job.keyframe_images_saved = True
+                        except Exception as e:
+                            logger.error(
+                                "Error saving keyframe images for job %s: %s", job_id, e
+                            )
+
             # Now serialize jobs with the updated image saved flags
             serialized_jobs = {}
             for job_id in job_ids:
@@ -547,8 +592,12 @@ class VideoJobQueue:
                     # Try to use metadata_utils.create_metadata if possible
                     try:
                         # Create metadata using the central utility
+                        # Queue files need the job's settings even when
+                        # saving metadata with videos is turned off
                         metadata = create_metadata(
-                            job.params, job.id, settings.settings
+                            job.params,
+                            job.id,
+                            dict(settings.settings, save_metadata=True),
                         )
 
                         # Add job status and other fields not included in metadata
@@ -581,6 +630,15 @@ class VideoJobQueue:
                                 metadata["saved_end_frame_image_path"] = (
                                     end_frame_image_path
                                 )
+
+                        if job.keyframe_images_saved:
+                            metadata["saved_keyframe_image_paths"] = (
+                                _keyframe_image_paths(
+                                    queue_images_dir,
+                                    job_id,
+                                    len(job.params.get("keyframe_images") or []),
+                                )
+                            )
 
                         serialized_jobs[job_id] = metadata
                     except Exception as e:
@@ -705,9 +763,7 @@ class VideoJobQueue:
             removed_count = 0
             for filename in os.listdir(queue_images_dir):
                 # Only process PNG files with our naming pattern
-                if filename.endswith(".png") and (
-                    "_input.png" in filename or "_end_frame.png" in filename
-                ):
+                if _is_queue_image(filename):
                     # Extract job ID from filename
                     parts = filename.split("_")
                     if len(parts) >= 2:
@@ -747,9 +803,7 @@ class VideoJobQueue:
             existing_image_files = set()
             if os.path.exists(queue_images_dir):
                 for filename in os.listdir(queue_images_dir):
-                    if filename.endswith(".png") and (
-                        "_input.png" in filename or "_end_frame.png" in filename
-                    ):
+                    if _is_queue_image(filename):
                         existing_image_files.add(filename)
 
             # Extract job IDs from filenames
@@ -793,6 +847,14 @@ class VideoJobQueue:
                         logger.error(
                             "Error removing image %s: %s", end_frame_image_path, e
                         )
+
+                for filename in existing_image_files:
+                    if filename.startswith(f"{job_id}_keyframe_"):
+                        try:
+                            os.remove(os.path.join(queue_images_dir, filename))
+                            removed_count += 1
+                        except Exception as e:
+                            logger.error("Error removing image %s: %s", filename, e)
 
             # Now ensure all current jobs have their images saved
             saved_count = 0
@@ -1176,18 +1238,15 @@ class VideoJobQueue:
             # Make sure queue.json is up to date
             self.save_queue_to_json()
 
+            if not os.path.exists("queue.json"):
+                logger.warning("queue.json not found, creating an empty one")
+                with open("queue.json", "w") as f:
+                    json.dump({}, f)
+            with open("queue.json", "r") as f:
+                queue_data = json.load(f)
+
             # Create a zip file
             with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-                # Add queue.json to the zip file
-                if os.path.exists("queue.json"):
-                    zipf.write("queue.json")
-                    logger.debug("Added queue.json to %s", output_path)
-                else:
-                    logger.warning("queue.json not found, creating an empty one")
-                    with open("queue.json", "w") as f:
-                        json.dump({}, f)
-                    zipf.write("queue.json")
-
                 # Add queue_images directory to the zip file if it exists
                 queue_images_dir = "queue_images"
                 if os.path.exists(queue_images_dir) and os.path.isdir(queue_images_dir):
@@ -1222,12 +1281,45 @@ class VideoJobQueue:
                     # Create the directory if it doesn't exist
                     os.makedirs(input_files_dir, exist_ok=True)
 
+                # Videos jobs use from elsewhere go in input_files too, and
+                # the job points there
+                self._bundle_job_videos(zipf, queue_data)
+
+                # Add queue.json to the zip file
+                zipf.writestr("queue.json", json.dumps(queue_data, indent=2))
+                logger.debug("Added queue.json to %s", output_path)
+
             logger.info("Queue exported to %s", output_path)
             return output_path
 
         except Exception as e:
             logger.exception("Error exporting queue to zip: %s", e)
             return None
+
+    @staticmethod
+    def _bundle_job_videos(zipf, queue_data):
+        """Add each job's motion reference video under input_files/ in the zip."""
+        bundled = {}  # arcname -> source file
+        for info in zipf.infolist():
+            if info.filename.startswith("input_files/"):
+                bundled[info.filename] = os.path.abspath(
+                    os.path.join("input_files", info.filename[len("input_files/") :])
+                )
+        for job_id, job_data in queue_data.items():
+            path = job_data.get("motion_reference_video")
+            if not (isinstance(path, str) and os.path.isfile(path)):
+                path = job_data.get("motion_reference_file")
+            if not (isinstance(path, str) and os.path.isfile(path)):
+                continue
+            source = os.path.abspath(path)
+            name = os.path.basename(path)
+            arcname = f"input_files/{name}"
+            if bundled.get(arcname, source) != source:
+                arcname = f"input_files/{job_id}_{name}"  # same name, other file
+            if arcname not in bundled:
+                zipf.write(source, arcname)
+                bundled[arcname] = source
+            job_data["motion_reference_video"] = arcname
 
     def load_queue_from_json(self, file_path=None):
         """Load queue from a JSON file or zip file
@@ -1319,7 +1411,73 @@ class VideoJobQueue:
                         "combine_with_source": job_data.get(
                             "combine_with_source", False
                         ),
+                        "num_cleaned_frames": job_data.get("num_cleaned_frames", 5),
+                        # Newer settings; older queue files get the worker defaults
+                        "save_section_latents": job_data.get(
+                            "save_section_latents", True
+                        ),
+                        "reroll_latents_path": job_data.get("reroll_latents_path"),
+                        "reroll_from_section": job_data.get("reroll_from_section"),
+                        "keyframe_images": None,
+                        "keyframe_times": None,
+                        "motion_reference_video": None,
+                        "motion_reference_strength": job_data.get(
+                            "motion_reference_strength", 0.5
+                        ),
+                        "motion_reference_start": job_data.get(
+                            "motion_reference_start", 0.0
+                        ),
+                        "flow_noise_arrows": [
+                            tuple(arrow)
+                            for arrow in job_data.get("flow_noise_arrows") or []
+                        ]
+                        or None,
+                        "flow_noise_camera": job_data.get("flow_noise_camera", "None"),
+                        "flow_noise_camera_amount": job_data.get(
+                            "flow_noise_camera_amount", 0.3
+                        ),
+                        "flow_noise_strength": job_data.get("flow_noise_strength", 0.7),
                     }
+
+                    # Keyframe images saved in queue_images, paired with their times
+                    keyframe_paths = job_data.get("saved_keyframe_image_paths") or []
+                    keyframe_times = job_data.get("keyframe_times") or []
+                    keyframe_images, kept_times = [], []
+                    for path, seconds in zip(keyframe_paths, keyframe_times):
+                        if not (path and os.path.exists(path)):
+                            logger.warning(
+                                "Keyframe image %s for job %s not found", path, job_id
+                            )
+                            continue
+                        try:
+                            keyframe_images.append(
+                                np.array(Image.open(path).convert("RGB"))
+                            )
+                            kept_times.append(float(seconds))
+                        except Exception as e:
+                            logger.error(
+                                "Error loading keyframe image for job %s: %s", job_id, e
+                            )
+                    if keyframe_images:
+                        params["keyframe_images"] = keyframe_images
+                        params["keyframe_times"] = kept_times
+
+                    # Motion reference: the queued copy, else the one kept with
+                    # the job's metadata
+                    for path in (
+                        job_data.get("motion_reference_video"),
+                        job_data.get("motion_reference_file"),
+                    ):
+                        if isinstance(path, str) and os.path.exists(path):
+                            params["motion_reference_video"] = path
+                            break
+                    else:
+                        if job_data.get("motion_reference_video"):
+                            logger.warning(
+                                "Motion reference video %s for job %s not found",
+                                job_data.get("motion_reference_video"),
+                                job_id,
+                            )
 
                     # Load input image from disk if saved path exists
                     if "saved_input_image_path" in job_data and os.path.exists(
@@ -1359,6 +1517,20 @@ class VideoJobQueue:
                                 logger.error(
                                     "Error loading video for job %s: %s", job_id, e
                                 )
+                    # input_video is only the file name in job metadata; the
+                    # full path is in video_path
+                    if params["model_type"] in VIDEO_MODEL_TYPES and not isinstance(
+                        params["input_image"], str
+                    ):
+                        for key in ("input_video_file", "video_path"):
+                            video_path = job_data.get(key)
+                            if isinstance(video_path, str) and os.path.exists(
+                                video_path
+                            ):
+                                params["input_image"] = video_path
+                                params["input_image_path"] = video_path
+                                params["has_input_image"] = True
+                                break
 
                     # Load end frame image from disk if saved path exists
                     if "saved_end_frame_image_path" in job_data and os.path.exists(
@@ -1475,6 +1647,8 @@ class VideoJobQueue:
                         and os.path.exists(job_data["saved_input_image_path"]),
                         end_frame_image_saved="saved_end_frame_image_path" in job_data
                         and os.path.exists(job_data["saved_end_frame_image_path"]),
+                        keyframe_images_saved=bool(keyframe_images)
+                        and len(keyframe_images) == len(keyframe_paths),
                     )
 
                     # Add job to the internal jobs dictionary
@@ -1638,6 +1812,20 @@ class VideoJobQueue:
                         logger.debug(
                             "Updated existing end frame image path for job %s", job_id
                         )
+
+                    # Keyframe images and the motion reference video
+                    if job_data.get("saved_keyframe_image_paths"):
+                        job_data["saved_keyframe_image_paths"] = [
+                            os.path.join(target_queue_images_dir, os.path.basename(p))
+                            for p in job_data["saved_keyframe_image_paths"]
+                        ]
+                    reference = job_data.get("motion_reference_video")
+                    if isinstance(reference, str):
+                        imported = os.path.join(
+                            "input_files", os.path.basename(reference)
+                        )
+                        if os.path.exists(imported):
+                            job_data["motion_reference_video"] = imported
 
                     # Handle video path update for job_data["input_video"]
                     current_input_video = job_data.get("input_video")
@@ -1833,6 +2021,7 @@ class VideoJobQueue:
                 job_was_cancelled = (
                     False  # Track if job was cancelled during processing
                 )
+                job_failed = False  # The worker reported an error
 
                 try:
                     if self.worker_function is None:
@@ -1847,6 +2036,7 @@ class VideoJobQueue:
 
                     # Clean up params for the worker function
                     worker_params = job.params.copy()
+
                     if "end_frame_image_original" in worker_params:
                         del worker_params["end_frame_image_original"]
                     if "end_frame_strength_original" in worker_params:
@@ -1905,10 +2095,31 @@ class VideoJobQueue:
                             elif flag == "progress":
                                 preview, desc, html = data
                                 with self.lock:
+                                    # Update in place: the worker also stores
+                                    # extra keys here (e.g. the current section)
                                     job.progress_data = {
+                                        **(job.progress_data or {}),
                                         "preview": preview,
                                         "desc": desc,
                                         "html": html,
+                                    }
+
+                            elif flag == "error":
+                                with self.lock:
+                                    job.error = summarize_error(data)
+                                    job.progress_data = {
+                                        **(job.progress_data or {}),
+                                        "desc": job.error,
+                                    }
+                                job_failed = True
+
+                            elif flag == "section":
+                                section, sections = data
+                                with self.lock:
+                                    job.progress_data = {
+                                        **(job.progress_data or {}),
+                                        "section": section,
+                                        "sections": sections,
                                     }
 
                             elif flag == "end":
@@ -1964,6 +2175,9 @@ class VideoJobQueue:
                                         "Job %s was cancelled but status was still RUNNING, correcting to CANCELLED",
                                         job_id,
                                     )
+                                elif job_failed:
+                                    # The worker caught an error and ended
+                                    job.status = JobStatus.FAILED
                                 else:
                                     # Job completed normally
                                     job.status = JobStatus.COMPLETED
@@ -1983,6 +2197,11 @@ class VideoJobQueue:
                                 job.completed_at = time.time()
 
                     logger.debug("Finishing job %s with status %s", job_id, job.status)
+                    if job.status == JobStatus.COMPLETED and job.result:
+                        # Show the result, not the start image it began from
+                        thumbnail = thumbnail_data_url(job.result)
+                        if thumbnail:
+                            job.thumbnail = thumbnail
                     self.is_processing = False
 
                     # Check if there's another job in the queue before setting current_job to None

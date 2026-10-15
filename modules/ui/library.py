@@ -17,6 +17,7 @@ from html import escape
 import gradio as gr
 
 from modules.pipelines import section_checkpoint
+from modules.thumbnails import save_thumbnail
 from modules.ui import capabilities as caps
 from modules.ui import library_audio
 from modules.ui.components.timeline import Timeline
@@ -53,27 +54,18 @@ def scan_outputs(output_dir):
 
 
 def _thumbnail(job_id, video_path, metadata_dir, cache_dir):
-    png = os.path.join(metadata_dir, f"{job_id}.png")
-    if os.path.exists(png):
-        return png
+    """A frame a third of the way into the video (the first is just the start
+    image), cached next to the Library. Falls back to the job's saved image."""
     os.makedirs(cache_dir, exist_ok=True)
-    thumb = os.path.join(cache_dir, f"{job_id}.jpg")
+    thumb = os.path.join(cache_dir, f"{job_id}_third.jpg")
     if os.path.exists(thumb) and os.path.getmtime(thumb) >= os.path.getmtime(
         video_path
     ):
         return thumb
-    try:
-        import cv2
-
-        capture = cv2.VideoCapture(video_path)
-        ok, frame = capture.read()
-        capture.release()
-        if ok:
-            cv2.imwrite(thumb, frame)
-            return thumb
-    except Exception as e:
-        logger.debug(f"No thumbnail for {video_path}: {e}")
-    return None
+    if save_thumbnail(video_path, thumb):
+        return thumb
+    png = os.path.join(metadata_dir, f"{job_id}.png")
+    return png if os.path.exists(png) else None
 
 
 def list_library(settings, skip_jobs=()):
@@ -135,6 +127,7 @@ def summary_html(job_id, video_path, meta):
     ]
     if meta.get("end_frame_used") not in (None, False, "False"):
         rows.append(("End frame", f"influence {meta.get('end_frame_strength', 1.0)}"))
+    rows += _motion_rows(meta)
     if loras:
         rows.append(("LoRAs", ", ".join(f"{k} ({v})" for k, v in loras.items())))
     when = meta.get("timestamp")
@@ -150,6 +143,34 @@ def summary_html(job_id, video_path, meta):
         f"<div class='lib-summary'><p class='lib-prompt'>{prompt}</p>{neg_html}"
         f"<dl>{cells}</dl></div>"
     )
+
+
+def _motion_rows(meta):
+    """Summary rows for keyframes, motion reference, motion sketch and re-roll."""
+    rows = []
+    times = meta.get("keyframe_times") or []
+    if times:
+        rows.append(("Keyframes", ", ".join(f"{t:g} s" for t in times)))
+    reference = meta.get("motion_reference_video")
+    if reference:
+        text = (
+            f"{os.path.basename(reference)} · follow "
+            f"{meta.get('motion_reference_strength', 0.5)}"
+        )
+        if meta.get("motion_reference_start"):
+            text += f" · from {meta['motion_reference_start']:g} s"
+        rows.append(("Reference", text))
+    arrows = meta.get("flow_noise_arrows") or []
+    camera = meta.get("flow_noise_camera")
+    if arrows or camera not in (None, "None"):
+        parts = [f"{len(arrows)} arrow{'s' if len(arrows) != 1 else ''}"]
+        if camera not in (None, "None"):
+            parts.append(f"camera {camera} {meta.get('flow_noise_camera_amount')}")
+        parts.append(f"strength {meta.get('flow_noise_strength')}")
+        rows.append(("Motion sketch", " · ".join(parts)))
+    if meta.get("reroll_from_section"):
+        rows.append(("Re-rolled", f"from section {meta['reroll_from_section']}"))
+    return rows
 
 
 def reroll_timeline(ckpt_path):
@@ -182,6 +203,14 @@ def reroll_timeline(ckpt_path):
         "selected_section": None,
         "selectable": True,
     }
+
+
+def _remove_quietly(path):
+    if path and os.path.isfile(path):
+        try:
+            os.remove(path)
+        except OSError as e:
+            logger.error(f"Could not delete {path}: {e}")
 
 
 def create_library_ui():
@@ -458,10 +487,20 @@ def connect_library_events(
                 removed += 1
             except OSError as e:
                 logger.error(f"Could not delete {path}: {e}")
+        meta = load_metadata(settings, job_id)
         for ext in (".json", ".png"):
             path = os.path.join(settings.get("metadata_dir"), f"{job_id}{ext}")
             if os.path.exists(path):
                 os.remove(path)
+        # Input copies saved with the metadata
+        for key in (
+            "start_image_file",
+            "end_frame_image_file",
+            "motion_reference_file",
+        ):
+            _remove_quietly(meta.get(key))
+        for path in meta.get("keyframe_image_files") or []:
+            _remove_quietly(path)
         gr.Info(f"Deleted {removed} video file{'s' if removed != 1 else ''}.")
         return [
             *refresh(),

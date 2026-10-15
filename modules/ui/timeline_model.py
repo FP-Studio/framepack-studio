@@ -184,3 +184,52 @@ def keyframe_times_from_timeline(value, current_times):
             if 0 <= index < len(times):
                 times[index] = round(float(frame.get("t", times[index])), 1)
     return times
+
+
+PROGRESS_STATES = ("done", "generating")
+
+
+def job_direction(model_type):
+    """Generation order of a queued job's legacy model_type, as build_timeline names it."""
+    if not model_type:
+        return None
+    model, source = caps.from_legacy(model_type)
+    if source == "Video":
+        return None
+    return "backward" if model == "Original" else "forward"
+
+
+def apply_progress(value, current_section=None, total_sections=None, direction=None):
+    """
+    Mark sections done / generating for a running job, or clear the marks.
+
+    current_section is 1-based in generation order, as the worker reports it.
+    direction is the running job's own order ("forward" / "backward"); it can
+    differ from the timeline's, e.g. an F1 guide queued from an Original setup.
+    Without it the sections' own "order" is used. The marks are only drawn when the job has as
+    many sections as the timeline, so a timeline edited after queueing isn't
+    painted with someone else's progress. Re-roll states are left alone.
+    Returns the new value, or None if nothing changed.
+    """
+    if not value or not value.get("sections"):
+        return None
+    sections = value["sections"]
+    show = bool(current_section) and total_sections == len(sections)
+    changed = False
+    marked = []
+    for index, section in enumerate(sections):
+        state = section.get("state") or "normal"
+        target = "normal" if state in PROGRESS_STATES else state
+        order = section.get("order")
+        if direction == "forward":
+            order = index + 1
+        elif direction == "backward":
+            order = len(sections) - index
+        if show and target == "normal" and order is not None:
+            if order < current_section:
+                target = "done"
+            elif order == current_section:
+                target = "generating"
+        changed |= target != state
+        marked.append({**section, "state": target})
+    return {**value, "sections": marked} if changed else None

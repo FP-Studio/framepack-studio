@@ -143,6 +143,9 @@ def load_safetensors_with_lora_and_fp8(
             return model_weight
 
         original_device = model_weight.device
+        # musubi saves LoRAs in float32; adding them would promote a bf16/fp16
+        # weight to float32, which then fails against half-precision activations
+        original_dtype = model_weight.dtype
         if original_device != device:
             model_weight = model_weight.to(device)  # to make calculation faster
 
@@ -205,7 +208,8 @@ def load_safetensors_with_lora_and_fp8(
             if alpha_key in lora_weight_keys:
                 lora_weight_keys.remove(alpha_key)
 
-        model_weight = model_weight.to(original_device)  # move back to original device
+        # back to the original device and dtype
+        model_weight = model_weight.to(original_device, dtype=original_dtype)
         return model_weight
 
     state_dict = load_safetensors_with_fp8_optimization(

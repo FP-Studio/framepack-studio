@@ -1007,6 +1007,20 @@ class HunyuanVideoTransformer3DModelPacked(
             ]
         )
 
+    def begin_sampling(self, first_step=0, num_steps=None):
+        """
+        Called at the start of every sampling run (one section). first_step is the
+        step of the full schedule the run starts at (> 0 when img2img skips steps)
+        and num_steps how many steps it will actually run.
+        """
+        # TeaCache: always compute the first and last step this run executes
+        self.cnt = 0
+        self.accumulated_rel_l1_distance = 0
+        if num_steps is not None:
+            self.num_steps = num_steps
+        if self.magcache is not None:
+            self.magcache.start_section(first_step)
+
     def install_magcache(self, magcache: MagCache):
         self.magcache = magcache
 

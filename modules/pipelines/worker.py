@@ -1300,6 +1300,12 @@ def worker(
                 section_idx += 1
                 continue
 
+            # Which section is generating (1-based, generation order), for the
+            # timeline; consumers that don't know this message ignore it
+            stream_to_use.output_queue.push(
+                ("section", (section_idx + 1, total_latent_sections))
+            )
+
             # Calculate the current time position
             if model_type == "Video":
                 # For Video model, add the input video time to the current position
@@ -1545,6 +1551,7 @@ def worker(
             # MOTION REFERENCE: start denoising part-way from the reference slice
             initial_latent = None
             denoise_strength = 1.0
+            backwards = model_type in ("Original", "Original with Endframe")
             if reference_latents is not None:
                 initial_latent = motion_reference.section_slice(
                     reference_latents,
@@ -1552,7 +1559,7 @@ def worker(
                     len(latent_paddings),
                     latent_window_size,
                     has_input_image,
-                    reverse_order=model_type in ("Original", "Original with Endframe"),
+                    reverse_order=backwards,
                 )
                 # Skip at most half the steps; with the flow shift that still
                 # starts from sigma ~0.85, so only motion and layout carry over

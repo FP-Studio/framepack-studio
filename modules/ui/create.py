@@ -12,6 +12,7 @@ silently dropped by the worker.
 
 import json
 import logging
+import os
 import random
 
 import gradio as gr
@@ -26,7 +27,10 @@ from modules.ui import capabilities as caps
 from modules.ui import presets
 from modules.ui.components.motion_canvas import MotionCanvas
 from modules.ui.components.timeline import Timeline
-from modules.ui.timeline_model import build_timeline, keyframe_times_from_timeline
+from modules.ui.timeline_model import (
+    build_timeline,
+    keyframe_times_from_timeline,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,7 @@ PRESET_KEYS = [
     "combine_with_source",
     "num_cleaned_frames",
     "lora_selector",
+    "motion_reference_strength",
 ]
 
 CACHE_CHOICES = [
@@ -83,6 +88,9 @@ def _bucket_text(img, width, height):
 
 def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
     initial_model, initial_source = "Original", "Image"
+
+    # The timeline runs along the top of the Create tab, above both columns
+    timeline = Timeline(label="Timeline", elem_id="create-timeline", interactive=True)
 
     with gr.Row(elem_id="create-root", equal_height=False):
         # ------------------------------------------------------------------ job
@@ -109,20 +117,14 @@ def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
                         label="Preset",
                         choices=presets.list_presets(initial_model, initial_source),
                         value=None,
+                        allow_custom_value=True,
+                        info="Pick one to load, or type a new name and save.",
                     )
                     with gr.Row(elem_classes="preset-actions"):
-                        preset_save_btn = gr.Button("Save as preset…", size="sm")
+                        preset_save_btn = gr.Button("Save preset", size="sm")
                         preset_delete_btn = gr.Button(
                             "Delete preset", size="sm", interactive=False
                         )
-            with gr.Row(visible=False, elem_classes="inline-form") as preset_save_row:
-                preset_name = gr.Textbox(
-                    label="Preset name",
-                    placeholder="e.g. Portrait, slow push-in",
-                    scale=3,
-                )
-                preset_save_confirm = gr.Button("Save", variant="primary", scale=0)
-                preset_save_cancel = gr.Button("Cancel", scale=0)
             with gr.Row(visible=False, elem_classes="inline-form") as preset_delete_row:
                 preset_delete_text = gr.Markdown("")
                 preset_delete_yes = gr.Button("Delete", variant="stop", scale=0)
@@ -241,10 +243,6 @@ def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
                     _bucket_text(None, 640, 640), elem_classes="field-note right"
                 )
 
-            timeline = Timeline(
-                label="Timeline", elem_id="create-timeline", interactive=True
-            )
-
             # Motion
             with gr.Column(elem_classes="motion-group"):
                 gr.Markdown("### Motion", elem_classes="section-title")
@@ -342,7 +340,6 @@ def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
                                 info="A single shot works best; cuts in the reference "
                                 "become cuts in the video.",
                             )
-
             # LoRAs
             with gr.Accordion("LoRAs", open=False) as lora_accordion:
                 with gr.Row(equal_height=True):
@@ -475,6 +472,7 @@ def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
                 )
                 result_video = gr.Video(
                     label="Latest result",
+                    elem_id="create-result",
                     autoplay=True,
                     loop=True,
                     height=300,
@@ -537,6 +535,8 @@ def create_create_ui(lora_names, default_prompt, dummy_lora_name, settings):
         "combine_with_source": combine_with_source,
         "num_cleaned_frames": num_cleaned_frames,
         "lora_selector": lora_selector,
+        # The strength carries over between clips; the clip and its start don't
+        "motion_reference_strength": motion_reference_strength,
         **lora_sliders,
     }
     return ui
@@ -879,35 +879,27 @@ def connect_create_events(g, f, settings, dummy_lora_name):
         outputs=preset_values + [g["preset_delete_btn"]],
     )
 
-    g["preset_save_btn"].click(
-        fn=lambda name: (gr.update(visible=True), gr.update(value=name or "")),
-        inputs=[g["preset_dropdown"]],
-        outputs=[g["preset_save_row"], g["preset_name"]],
-    )
-    g["preset_save_cancel"].click(
-        fn=lambda: gr.update(visible=False), outputs=[g["preset_save_row"]]
-    )
-
     def save_preset(name, model, source, *values):
         name = (name or "").strip()
         if not name:
-            gr.Warning("Give the preset a name first.")
-            return gr.update(), gr.update(visible=True)
+            gr.Warning("Type a name in the Preset box first.")
+            return gr.update(), gr.update()
         data = dict(zip(preset_keys, values))
         weights = {k: data.pop(k) for k in list(data) if k in g["lora_sliders"]}
         selected = data.get("lora_selector") or []
         data["lora_values"] = {k: v for k, v in weights.items() if k in selected}
+        existed = name in presets.list_presets(model, source)
         presets.save_preset(model, source, name, data)
-        gr.Info(f"Saved preset “{name}”.")
+        gr.Info(f"{'Updated' if existed else 'Saved'} preset “{name}”.")
         return (
             gr.update(choices=presets.list_presets(model, source), value=name),
-            gr.update(visible=False),
+            gr.update(interactive=True),
         )
 
-    g["preset_save_confirm"].click(
+    g["preset_save_btn"].click(
         fn=save_preset,
-        inputs=[g["preset_name"], g["model"], g["source"]] + preset_values,
-        outputs=[g["preset_dropdown"], g["preset_save_row"]],
+        inputs=[g["preset_dropdown"], g["model"], g["source"]] + preset_values,
+        outputs=[g["preset_dropdown"], g["preset_delete_btn"]],
     )
 
     g["preset_delete_btn"].click(
@@ -1088,6 +1080,7 @@ def connect_create_events(g, f, settings, dummy_lora_name):
             else []
         )
         camera = v["camera"] if use["motion_sketch"] else "None"
+        reference = v["motion_reference_video"] if use["motion_reference"] else None
         reroll = v["reroll_state"] if use["reroll"] else None
 
         # LoRA weights in the stable slider order (see #388)
@@ -1131,9 +1124,7 @@ def connect_create_events(g, f, settings, dummy_lora_name):
             reroll_from_section=(reroll or {}).get("section"),
             keyframe_images=[image for image, _ in keyframe_pairs] or None,
             keyframe_times=[t for _, t in keyframe_pairs] or None,
-            motion_reference_video=v["motion_reference_video"]
-            if use["motion_reference"]
-            else None,
+            motion_reference_video=reference,
             motion_reference_strength=v["motion_reference_strength"],
             motion_reference_start=v["motion_reference_start"] or 0.0,
             flow_noise_arrows=arrows or None,
@@ -1254,7 +1245,111 @@ def restore_targets(g):
         g["cfg"],
         g["rs"],
         g["lora_selector"],
-    ] + g["lora_slider_list"]
+        *g["lora_slider_list"],
+        # Inputs and motion; metadata from before these were saved leaves them as is
+        g["input_image"],
+        g["end_frame_image"],
+        g["input_video"],
+        *g["keyframe_images"],
+        *g["keyframe_times"],
+        g["motion_reference_video"],
+        g["motion_reference_strength"],
+        g["motion_reference_start"],
+        g["motion_canvas"],
+        g["camera"],
+        g["camera_amount"],
+        g["flow_strength"],
+    ]
+
+
+def _load_image(path):
+    try:
+        with Image.open(path) as img:
+            return np.array(img.convert("RGB"))
+    except Exception as e:
+        logger.warning(f"Couldn't restore {path}: {e}")
+        return None
+
+
+def _file_update(meta, key, load=None):
+    """
+    Update for a component restored from a file saved with the metadata:
+    the file if it's still there, cleared if the job had none, and left
+    alone for older metadata without the key or a file that's gone.
+    """
+    if key not in meta:
+        return gr.update()
+    path = meta.get(key)
+    if not path:
+        return gr.update(value=None)
+    if not os.path.isfile(path):
+        return gr.update()
+    value = load(path) if load else path
+    return gr.update() if value is None else gr.update(value=value)
+
+
+def _input_updates(meta):
+    """Updates for the input and motion targets of restore_targets()."""
+
+    def val(key):
+        value = meta.get(key)
+        return gr.update() if value is None else gr.update(value=value)
+
+    start_image = _file_update(meta, "start_image_file", _load_image)
+    updates = [
+        start_image,
+        _file_update(meta, "end_frame_image_file", _load_image),
+        _file_update(meta, "input_video_file"),
+    ]
+
+    # Keyframes: saved slots first, the rest emptied
+    images = [gr.update()] * NUM_KEYFRAME_SLOTS
+    times = [gr.update()] * NUM_KEYFRAME_SLOTS
+    if "keyframe_times" in meta:
+        files = meta.get("keyframe_image_files") or []
+        kf_times = meta.get("keyframe_times") or []
+        for i in range(NUM_KEYFRAME_SLOTS):
+            path = files[i] if i < len(files) else None
+            image = _load_image(path) if path and os.path.isfile(path) else None
+            images[i] = gr.update(value=image)
+            if image is not None and i < len(kf_times):
+                times[i] = gr.update(value=kf_times[i])
+    updates += images + times
+
+    # Motion reference: the copy kept with the metadata, else the original
+    reference = gr.update()
+    if "motion_reference_video" in meta:
+        paths = [meta.get("motion_reference_file"), meta.get("motion_reference_video")]
+        found = [p for p in paths if p and os.path.isfile(p)]
+        if found:
+            reference = gr.update(value=found[0])
+        elif not any(paths):
+            reference = gr.update(value=None)
+    updates += [
+        reference,
+        val("motion_reference_strength"),
+        val("motion_reference_start"),
+    ]
+
+    # Motion sketch: the tab is hidden, but the worker still takes these
+    canvas = gr.update()
+    if "flow_noise_camera" in meta:
+        background = start_image.get("value") if "value" in start_image else None
+        canvas = gr.update(
+            value={
+                "background": background,
+                "arrows": meta.get("flow_noise_arrows") or [],
+                "camera": meta.get("flow_noise_camera") or "None",
+                "camera_amount": meta.get("flow_noise_camera_amount") or 0.0,
+            }
+        )
+    updates += [
+        canvas,
+        val("flow_noise_camera"),
+        val("flow_noise_camera_amount"),
+        val("flow_noise_strength"),
+    ]
+    return updates
 
 
 def settings_from_metadata(meta, lora_names):
@@ -1311,6 +1406,9 @@ def settings_from_metadata(meta, lora_names):
         else gr.update(visible=False)
         for name in lora_names
     ]
+    # Re-roll settings are recorded but not restored: the Library's re-roll
+    # sets them up explicitly, and the old checkpoint shouldn't ride along.
+    updates += _input_updates(meta)
     return updates
 
 

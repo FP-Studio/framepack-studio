@@ -211,18 +211,19 @@
 
 .header-links a {
   display: inline-flex;
-  opacity: 0.75;
+  padding: 4px;
+  color: var(--fps-muted);
+  transition: color 0.15s;
 }
 
 .header-links a:hover {
-  opacity: 1;
+  color: #5865f2; /* Discord blurple */
 }
 
 .header-links-wrap {
   overflow: visible !important; /* Gradio sets overflow inline */
 }
 
-/* The badge SVGs have no viewBox, so keep their natural 28px size */
 .header-links svg {
   display: block;
 }
@@ -608,6 +609,12 @@
   line-height: 1.4;
 }
 
+.queue-row-error {
+  margin-top: 4px;
+  color: var(--fps-bad);
+  font-size: 0.9em;
+}
+
 .queue-row-settings {
   display: flex;
   flex-wrap: wrap;
@@ -750,23 +757,148 @@
 
 /* ----------------------------------------------------------------- tools */
 
-/* hide the source selection bar on the Tools input player */
+/* Process / Join clips / Edit frames, as a segmented control */
+#tools-mode .wrap {
+  display: inline-flex;
+  gap: 0;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--fps-surface-2);
+  border: 1px solid var(--fps-line);
+}
+
+#tools-mode label {
+  margin: 0;
+  padding: 6px 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+#tools-mode label input {
+  display: none;
+}
+
+#tools-mode label.selected {
+  background: var(--fps-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+  font-weight: 600;
+}
+
+/* The result column stays in view while the steps scroll */
+#tools-result {
+  position: sticky;
+  top: 64px;
+  align-self: flex-start;
+}
+
 #toolbox-video-player .source-selection {
   display: none;
 }
 
 .video-size video {
-  max-height: 60vh;
-  min-height: 300px;
+  max-height: 50vh;
+  min-height: 220px;
   object-fit: contain;
 }
 
+.steps-head {
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.steps-head .section-title {
+  flex: 1 1 auto;
+}
+
+/* A step: switch in the header, settings underneath while it's on */
+.step-card {
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  overflow: hidden;
+}
+
+/* Title first, then the one-line note (Gradio puts info above the box) */
+.step-card .step-switch {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+}
+
+.step-card .step-switch > label {
+  order: 1;
+  font-weight: 600;
+}
+
+.step-card .step-switch > div:not(.wrap) {
+  order: 2;
+  margin: 2px 0 0 24px;
+}
+
+.step-card:has(.step-switch input:checked) {
+  border-color: var(--fps-accent);
+}
+
+.step-card:has(.step-switch input:checked) .step-switch {
+  background: var(--fps-accent-soft);
+}
+
+.step-body {
+  padding: 4px 12px 12px;
+  gap: 8px;
+}
+
+.align-end {
+  align-items: flex-end;
+}
+
+.preset-line {
+  align-items: flex-end;
+  gap: 6px;
+}
+
+#tools-run {
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--fps-line);
+  border-radius: var(--fps-radius);
+  background: var(--fps-surface-2);
+}
+
+.run-summary p {
+  margin: 0;
+  color: var(--fps-muted);
+}
+
+.quiet-accordion {
+  border-color: var(--fps-line);
+  background: transparent;
+}
+
 #gallery-scroll-wrapper {
-  max-height: 600px;
+  max-height: 520px;
   overflow-y: auto;
 }
 
-.analysis-box textarea {
+.analysis-box textarea,
+#tools-result .message-box textarea {
   font-family: var(--font-mono);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+}
+
+/* ----------------------------------------------------------------- timeline */
+
+/* Runs along the top of the Create tab, above both columns */
+#create-timeline {
+  margin-bottom: 4px;
+}
+
+/* Clicking a section jumps the Latest result video there */
+#create-timeline .cell {
+  cursor: pointer;
 }

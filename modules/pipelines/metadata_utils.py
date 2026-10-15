@@ -5,6 +5,7 @@ This module provides functions for generating and saving metadata.
 
 import logging
 import os
+import shutil
 import time
 import numpy as np  # Added
 from PIL import Image, ImageDraw, ImageFont
@@ -61,6 +62,15 @@ def save_job_start_image(job_params, job_id, settings):
 
     actual_start_image_target_path = os.path.join(output_dir_path, f"{job_id}.png")
     actual_input_image_np = job_params.get("input_image")
+
+    # Keep copies of the job's inputs with its metadata so "Use these settings"
+    # can bring them back after the queue's own copies are cleaned up
+    job_params = dict(job_params)
+    job_params.update(save_job_inputs(job_params, job_id, metadata_dir_path))
+    if isinstance(actual_input_image_np, np.ndarray) and job_params.get(
+        "has_input_image", True
+    ):
+        job_params["start_image_file"] = actual_start_image_target_path
 
     # Create comprehensive metadata dictionary
     metadata_dict = create_metadata(job_params, job_id, settings)
@@ -124,6 +134,58 @@ def save_job_start_image(job_params, job_id, settings):
         except Exception:
             logger.exception("Error saving job start image")
     return False  # Indicate failure or inability to save
+
+
+def _to_uint8(image):
+    image = np.asarray(image)[..., :3]
+    if image.dtype != np.uint8:
+        image = image.clip(0, 255).astype(np.uint8)
+    return image
+
+
+def save_job_inputs(job_params, job_id, metadata_dir):
+    """
+    Save the job's end frame, keyframe images and motion reference video next
+    to its metadata. Returns the *_file keys for create_metadata().
+    """
+    saved = {}
+    end_frame = job_params.get("end_frame_image")
+    if isinstance(end_frame, np.ndarray):
+        path = os.path.join(metadata_dir, f"{job_id}_end_frame.png")
+        try:
+            Image.fromarray(_to_uint8(end_frame)).save(path)
+            saved["end_frame_image_file"] = path
+        except Exception:
+            logger.exception("Error saving the end frame image")
+
+    files = []
+    for i, image in enumerate(job_params.get("keyframe_images") or []):
+        path = os.path.join(metadata_dir, f"{job_id}_keyframe_{i + 1}.png")
+        try:
+            Image.fromarray(_to_uint8(image)).save(path)
+            files.append(path)
+        except Exception:
+            logger.exception("Error saving keyframe image %d", i + 1)
+            files.append(None)
+    if files:
+        saved["keyframe_image_files"] = files
+
+    # In a subfolder: the Library lists every .mp4 at the top of the output folder
+    video = job_params.get("motion_reference_video")
+    if isinstance(video, str) and os.path.isfile(video):
+        folder = os.path.join(metadata_dir, "reference_clips")
+        path = os.path.join(folder, f"{job_id}{os.path.splitext(video)[1]}")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            shutil.copy2(video, path)
+            saved["motion_reference_file"] = path
+        except Exception:
+            logger.exception("Error copying the motion reference video")
+    return saved
+
+
+def _floats(values):
+    return None if values is None else [float(v) for v in values]
 
 
 def create_metadata(job_params, job_id, settings, save_placeholder=False):
@@ -200,6 +262,11 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         else:
             end_frame_used = True
 
+    # Video models get the source video's path as input_image
+    is_video = model_type in ("Video", "Video F1") and isinstance(
+        job_params.get("input_image"), str
+    )
+
     # Create comprehensive JSON metadata with all possible parameters
     # This is created before file saving logic that might use it (e.g. JSON dump)
     # but PngInfo 'metadata' is used for images.
@@ -233,9 +300,9 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         "end_frame_used": str(end_frame_used),
         # Video input-related parameters
         "input_video": os.path.basename(job_params.get("input_image", ""))
-        if job_params.get("input_image") is not None and model_type == "Video"
+        if job_params.get("input_image") is not None and is_video
         else None,
-        "video_path": job_params.get("input_image") if model_type == "Video" else None,
+        "video_path": job_params.get("input_image") if is_video else None,
         # XY Plot-related parameters
         "x_param": job_params.get("x_param", None),
         "y_param": job_params.get("y_param", None),
@@ -254,6 +321,33 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
             "magcache_max_consecutive_skips", 2
         ),
         "magcache_retention_ratio": job_params.get("magcache_retention_ratio", 0.25),
+        # Copies of the inputs kept with the metadata (see save_job_inputs)
+        "start_image_file": job_params.get("start_image_file"),
+        "end_frame_image_file": job_params.get("end_frame_image_file"),
+        "input_video_file": job_params.get("input_image") if is_video else None,
+        # Mid-video keyframes (Original models); times as entered, in seconds
+        "keyframe_times": _floats(job_params.get("keyframe_times"))
+        if job_params.get("keyframe_images")
+        else None,
+        "keyframe_image_files": job_params.get("keyframe_image_files"),
+        # Motion reference video
+        "motion_reference_video": job_params.get("motion_reference_video"),
+        "motion_reference_file": job_params.get("motion_reference_file"),
+        "motion_reference_strength": job_params.get("motion_reference_strength", 0.5),
+        "motion_reference_start": job_params.get("motion_reference_start", 0.0),
+        # Motion sketch (flow noise)
+        "flow_noise_arrows": [
+            [float(v) for v in arrow] for arrow in job_params["flow_noise_arrows"]
+        ]
+        if job_params.get("flow_noise_arrows")
+        else None,
+        "flow_noise_camera": job_params.get("flow_noise_camera", "None"),
+        "flow_noise_camera_amount": job_params.get("flow_noise_camera_amount", 0.3),
+        "flow_noise_strength": job_params.get("flow_noise_strength", 0.7),
+        # Section re-roll
+        "save_section_latents": job_params.get("save_section_latents", True),
+        "reroll_latents_path": job_params.get("reroll_latents_path"),
+        "reroll_from_section": job_params.get("reroll_from_section"),
     }
 
     # Add LoRA information if present
