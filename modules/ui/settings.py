@@ -142,6 +142,14 @@ def create_settings_ui(settings):
                         info="bf16 is the default and doesn't quantize. NF4 uses less "
                         "memory. int8 doesn't work with FramePack's memory management.",
                     )
+                    vram_mode_setting = gr.Dropdown(
+                        label="VRAM mode (restart to apply)",
+                        choices=["auto", "high", "medium", "low"],
+                        value=settings.get("vram_mode", "auto"),
+                        info="Medium keeps the model on the GPU in fp8 (needs about "
+                        "20 GB free) and is much faster than low. Auto picks from "
+                        "the free VRAM.",
+                    )
                     lora_loader = gr.Dropdown(
                         label="LoRA loader",
                         choices=[loader.value for loader in LoraLoader],
@@ -177,6 +185,7 @@ def create_settings_ui(settings):
         "gpu_memory_preservation": gpu_memory_preservation,
         "reuse_model_instance": reuse_model_instance,
         "quantization_format": quantization_format,
+        "vram_mode": vram_mode_setting,
         "lora_loader": lora_loader,
         "override_system_prompt": override_system_prompt,
         "system_prompt_template": system_prompt_template,

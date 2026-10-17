@@ -11,6 +11,9 @@ class QuantizationFormat(StrEnum):
     normal_float_4bit = auto()
     integer_8bit = auto()
     brain_floating_point_16bit = auto()
+    # Weights stored in fp8 (e4m3), each layer computed in bf16. Half the
+    # memory of bf16, no bitsandbytes needed.
+    float8_storage = auto()
     NONE = brain_floating_point_16bit
     DEFAULT = NONE
 
@@ -21,23 +24,25 @@ class QuantizationFormat(StrEnum):
 
     @staticmethod
     def safe_parse(value: "str | QuantizationFormat") -> "QuantizationFormat":
-        if find_spec("bitsandbytes") is None:
-            logger.error(
-                "bitsandbytes not found, defaulting to no quantization. https://docs.framepackstudio.com/help"
-            )
-            # If bitsandbytes is not installed, we can not quantize, so return NONE
-            return QuantizationFormat.NONE
-
         logger.debug(f"QuantizationFormat: {value}")
-        if isinstance(value, QuantizationFormat):
-            return value
         try:
-            return QuantizationFormat(value)
+            parsed = QuantizationFormat(value)
         except ValueError:
             logger.exception(
                 f"Invalid QuantizationFormat value: {value}, defaulting to {QuantizationFormat.DEFAULT}."
             )
             return QuantizationFormat.DEFAULT
+        needs_bnb = parsed in (
+            QuantizationFormat.normal_float_4bit,
+            QuantizationFormat.integer_8bit,
+        )
+        if needs_bnb and find_spec("bitsandbytes") is None:
+            logger.error(
+                "bitsandbytes not found, defaulting to no quantization. https://docs.framepackstudio.com/help"
+            )
+            # If bitsandbytes is not installed, we can not quantize, so return NONE
+            return QuantizationFormat.NONE
+        return parsed
 
 
 class LoraLoader(StrEnum):

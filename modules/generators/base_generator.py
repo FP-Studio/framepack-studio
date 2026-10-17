@@ -15,6 +15,7 @@ from diffusers_helper.models.hunyuan_video_packed import (
 
 from ..settings import Settings
 from .model_configuration import ModelConfiguration
+from modules import vram_mode
 from shared import QuantizationFormat
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,12 @@ class BaseModelGenerator(ABC):
         self.quantization_format = self.settings.get(
             "quantization_format", QuantizationFormat.integer_8bit
         )
+        if (
+            vram_mode.transformer_stays_on_gpu()
+            and self.quantization_format == QuantizationFormat.brain_floating_point_16bit
+        ):
+            # bf16 (26 GB) can't stay on the GPU; fp8 storage (13 GB) can
+            self.quantization_format = QuantizationFormat.float8_storage
         self.set_quantization_config()
 
         self.previous_model_hash: str = ""
@@ -105,6 +112,19 @@ class BaseModelGenerator(ABC):
         if self.quantization_format == QuantizationFormat.integer_8bit:
             # 8-bit integer quantization config
             self.quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+
+    def apply_weight_storage(self):
+        """
+        With float8_storage, keep the transformer's weights in fp8 and cast
+        each layer to bf16 only while it runs (norms and embeddings stay
+        bf16). The model then takes about 13 GB instead of 26 GB.
+        """
+        if self.quantization_format != QuantizationFormat.float8_storage:
+            return
+        self.transformer.enable_layerwise_casting(
+            storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16
+        )
+        logger.info(f"{self.model_name} Transformer weights stored in fp8.")
 
     @abstractmethod
     def load_model(self) -> HunyuanVideoTransformer3DModelPacked:
@@ -507,8 +527,14 @@ class BaseModelGenerator(ABC):
                     device=self.gpu if torch.cuda.is_available() else self.cpu,
                 )
                 logger.debug("Loading state dict into transformer...")
+                # With fp8 storage, copy into the existing fp8 weights (cast,
+                # and kept on whatever device they are on); assigning would
+                # swap in the merged bf16 tensors from system RAM.
                 missing_keys, unexpected_keys = self.transformer.load_state_dict(
-                    state_dict, assign=True, strict=True
+                    state_dict,
+                    assign=self.quantization_format
+                    != QuantizationFormat.float8_storage,
+                    strict=True,
                 )
 
                 if missing_keys:

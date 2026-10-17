@@ -26,6 +26,7 @@ from diffusers_helper.memory import (
 from diffusers_helper.gradio.progress_bar import make_progress_bar_html
 from diffusers_helper.hunyuan import vae_decode
 from modules.prompt_handler import parse_timestamped_prompt
+from modules import vram_mode
 from modules.generators import create_model_generator
 from modules.pipelines.video_tools import combine_videos_sequentially_from_tensors
 from modules.pipelines import keyframes, section_checkpoint
@@ -360,6 +361,7 @@ def worker(
             if (
                 studio_module.current_generator is not None
                 and studio_module.current_generator.transformer is not None
+                and not vram_mode.transformer_stays_on_gpu()
             ):
                 offload_model_from_device_for_memory_preservation(
                     studio_module.current_generator.transformer,
@@ -405,6 +407,15 @@ def worker(
         )  # settings is now a singleton and the Base Model is setup to get the instance if this is not provided - candidate for removal
 
         if new_generator is not None:
+            old = studio_module.current_generator
+            if vram_mode.transformer_stays_on_gpu() and old is not None:
+                # Free the resident transformer before loading the next one
+                old.transformer = None
+                del old
+                import gc
+
+                gc.collect()
+                torch.cuda.empty_cache()
             studio_module.current_generator = new_generator
             # Load the transformer model
             # load_model() should be called in the setter for current_generator
@@ -1538,11 +1549,15 @@ def worker(
                         ),
                     )
                 )
-                move_model_to_device_with_memory_preservation(
-                    studio_module.current_generator.transformer,
-                    target_device=gpu,
-                    preserved_memory_gb=settings.get("gpu_memory_preservation"),
-                )
+                if vram_mode.transformer_stays_on_gpu():
+                    # Already there, unless an error moved it off
+                    studio_module.current_generator.transformer.to(gpu)
+                else:
+                    move_model_to_device_with_memory_preservation(
+                        studio_module.current_generator.transformer,
+                        target_device=gpu,
+                        preserved_memory_gb=settings.get("gpu_memory_preservation"),
+                    )
                 if selected_loras:
                     studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
@@ -1634,13 +1649,16 @@ def worker(
             section_frames.append(int(generated_latents.shape[2]))
 
             if not high_vram:
-                if selected_loras:
-                    studio_module.current_generator.move_lora_adapters_to_device(cpu)
-                offload_model_from_device_for_memory_preservation(
-                    studio_module.current_generator.transformer,
-                    target_device=gpu,
-                    preserved_memory_gb=8,
-                )
+                if not vram_mode.transformer_stays_on_gpu():
+                    if selected_loras:
+                        studio_module.current_generator.move_lora_adapters_to_device(
+                            cpu
+                        )
+                    offload_model_from_device_for_memory_preservation(
+                        studio_module.current_generator.transformer,
+                        target_device=gpu,
+                        preserved_memory_gb=8,
+                    )
                 load_model_as_complete(vae, target_device=gpu)
 
             # Get real history latents using the generator

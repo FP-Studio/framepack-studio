@@ -136,11 +136,17 @@ else:
     if "HF_HUB_OFFLINE" in os.environ:
         del os.environ["HF_HUB_OFFLINE"]
 
+from modules import vram_mode
+from modules.settings import Settings
+
 free_mem_gb = get_cuda_free_memory_gb(gpu)
-high_vram = free_mem_gb > 60
+vram_mode.set_mode(
+    vram_mode.choose(free_mem_gb, Settings().get("vram_mode", vram_mode.AUTO))
+)
+high_vram = vram_mode.get() == vram_mode.HIGH
 
 print(f"Free VRAM {free_mem_gb} GB")
-print(f"High-VRAM Mode: {high_vram}")
+print(f"VRAM mode: {vram_mode.get()}")
 
 # Load models
 text_encoder = LlamaModel.from_pretrained(

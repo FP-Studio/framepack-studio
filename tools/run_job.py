@@ -20,6 +20,12 @@ From the command line (run from the repo root with the app's venv):
     python tools/run_job.py --image start.png --prompt "a bunny dancing" \
         --model-type F1 --seconds 4 --guide guide.mp4 --strength 0.5 --start 1.5
     python tools/run_job.py --params job.json   # one job or a list of jobs
+    python tools/run_job.py --image start.png --prompt "..." \
+        --lora dolly_smoke_r32:1.0 --lora-dir runs/dolly_smoke_r32
+
+LoRAs are named by file stem, NAME or NAME:WEIGHT, and load with the
+lora_ready (kohya) loader unless --lora-loader says otherwise: it reads
+musubi-tuner's format, which the diffusers loader can't.
 
 `--fake` swaps in the tiny CPU test models from tests/cpu/fpharness.py so the
 plumbing can be checked without a GPU (outputs are noise).
@@ -86,6 +92,10 @@ DEFAULTS = {
     "save_metadata_checked": True,
     # The UI saves a re-roll checkpoint per job; a sweep doesn't need them.
     "save_section_latents": False,
+    # Re-roll: a section checkpoint and the 1-based section (generation order)
+    # to regenerate from; earlier sections are kept as they were.
+    "reroll_latents_path": None,
+    "reroll_from_section": None,
     "keyframe_images": None,
     "keyframe_times": None,
     "motion_reference_video": None,
@@ -95,6 +105,10 @@ DEFAULTS = {
     "flow_noise_camera": "None",
     "flow_noise_camera_amount": 0.3,
     "flow_noise_strength": 0.7,
+    # {file stem: weight}; files are looked up in lora_dir (default: the app's)
+    "loras": None,
+    "lora_dir": None,
+    "lora_loader": "lora_ready",
 }
 
 # Friendlier names accepted by run_job() / JSON job files.
@@ -177,9 +191,15 @@ def _load_real_models(offline):
         gpu,
     )
 
+    from modules import vram_mode
+    from modules.settings import Settings
+
     free_mem_gb = get_cuda_free_memory_gb(gpu)
-    high_vram = free_mem_gb > 60
-    logger.info(f"Free VRAM {free_mem_gb} GB, High-VRAM Mode: {high_vram}")
+    vram_mode.set_mode(
+        vram_mode.choose(free_mem_gb, Settings().get("vram_mode", vram_mode.AUTO))
+    )
+    high_vram = vram_mode.get() == vram_mode.HIGH
+    logger.info(f"Free VRAM {free_mem_gb} GB, VRAM mode: {vram_mode.get()}")
 
     text_encoder = LlamaModel.from_pretrained(
         "hunyuanvideo-community/HunyuanVideo",
@@ -321,6 +341,41 @@ def _install_globals(models, stream):
     main.stream = stream
 
 
+class _LogCatcher(logging.Handler):
+    """Collects messages at or above `level` that mention `text`."""
+
+    def __init__(self, level, text):
+        super().__init__(level)
+        self.text, self.messages = text, []
+
+    def emit(self, record):
+        message = record.getMessage()
+        if self.text in message:
+            self.messages.append(message)
+
+
+_SETTINGS_OVERRIDES = {}
+
+
+def _override_settings(settings, **values):
+    """
+    Set app settings for this process only. Studio calls Settings() in many
+    places and every call reloads the file, so the overrides are reapplied on
+    each reload rather than set once.
+    """
+    _SETTINGS_OVERRIDES.update(values)
+    settings.settings.update(values)
+    cls = type(settings)
+    if not getattr(cls, "_run_job_patched", False):
+        load = cls.load_settings
+
+        def load_with_overrides(self):
+            return {**load(self), **_SETTINGS_OVERRIDES}
+
+        cls.load_settings = load_with_overrides
+        cls._run_job_patched = True
+
+
 def normalize_params(params):
     """Apply ALIASES and DEFAULTS; reject unknown keys."""
     out = dict(DEFAULTS)
@@ -392,22 +447,37 @@ def run_job(
     job = normalize_params(params)
     sm = StudioManager()
     settings = sm.settings
-    # Mutate the dict directly: settings.set() would rewrite .framepack/settings.json.
-    settings.settings["reuse_model_instance"] = True  # keep the transformer loaded
-    settings.settings["clean_up_videos"] = clean_up_videos
-    settings.settings["save_metadata"] = save_metadata
+    # Not settings.set(), which would rewrite .framepack/settings.json
+    _override_settings(
+        settings,
+        reuse_model_instance=True,  # keep the transformer loaded
+        clean_up_videos=clean_up_videos,
+        save_metadata=save_metadata,
+    )
     # Remember the app's own output folders before overriding them per job.
     app_dirs = _APP_DIRS.setdefault(
-        "dirs", (settings.get("output_dir"), settings.get("metadata_dir"))
+        "dirs",
+        (settings.get("output_dir"), settings.get("metadata_dir"), settings.get("lora_dir")),
     )
     if output_dir is None:
         output_dir, metadata_dir = app_dirs[0], metadata_dir or app_dirs[1]
     output_dir = os.path.abspath(output_dir)
     metadata_dir = os.path.abspath(metadata_dir or output_dir)
-    # The worker's start-image/metadata writer reads these from settings.
-    settings.settings["output_dir"] = output_dir
-    settings.settings["metadata_dir"] = metadata_dir
+    loras = job.pop("loras") or {}
+    lora_dir = os.path.abspath(job.pop("lora_dir") or app_dirs[2])
+    # The worker's start-image/metadata writer and LoRA loader read these
+    _override_settings(
+        settings,
+        output_dir=output_dir,
+        metadata_dir=metadata_dir,
+        lora_dir=lora_dir,
+        lora_loader=job.pop("lora_loader"),
+    )
     input_files_dir = settings.get("input_files_dir")
+    for name in loras:
+        path = os.path.join(lora_dir, f"{name}.safetensors")
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
     os.environ.setdefault("GRADIO_TEMP_DIR", settings.get("gradio_temp_dir"))
     for path in (output_dir, metadata_dir, input_files_dir):
         os.makedirs(path, exist_ok=True)
@@ -438,9 +508,9 @@ def run_job(
     _install_globals(models, stream)
     worker_kwargs = dict(
         job,
-        selected_loras=[],
-        lora_values=[],
-        lora_loaded_names=[],
+        selected_loras=list(loras),
+        lora_values=[float(w) for w in loras.values()],
+        lora_loaded_names=list(loras),
         has_input_image=has_input_image,
         job_stream=stream,
         output_dir=output_dir,
@@ -462,6 +532,11 @@ def run_job(
         except BaseException:
             stream.output_queue.push(("error", traceback.format_exc()))
             stream.output_queue.push(("end", None))
+
+    # Studio logs a LoRA that fails to load and renders without it; catch that
+    lora_errors = _LogCatcher(logging.ERROR, "LoRA")
+    generators_log = logging.getLogger("modules.generators")
+    generators_log.addHandler(lora_errors)
 
     started = time.time()
     thread = threading.Thread(target=target, name="run_job-worker", daemon=True)
@@ -502,9 +577,12 @@ def run_job(
         raise
     thread.join()
     elapsed = time.time() - started
+    generators_log.removeHandler(lora_errors)
 
     if errors:
         raise RuntimeError(errors[-1])
+    if loras and lora_errors.messages:
+        raise RuntimeError(f"LoRA didn't load: {lora_errors.messages[-1]}")
     if not files or not os.path.exists(files[-1]):
         raise RuntimeError(f"Worker finished without writing a video (job {job_id})")
     metadata_path = os.path.join(metadata_dir, f"{job_id}.json") if job_id else None
@@ -557,10 +635,24 @@ def build_parser():
         type=float,
         help="seconds into the reference to start from (default 0)",
     )
+    p.add_argument(
+        "--lora",
+        action="append",
+        metavar="NAME[:WEIGHT]",
+        help="LoRA file stem, repeatable (weight default 1.0)",
+    )
+    p.add_argument("--lora-dir", help="folder with the LoRA files")
+    p.add_argument("--lora-loader", choices=["lora_ready", "diffusers"])
     p.add_argument("--output-dir", help="default: the app's output_dir setting")
     p.add_argument("--fake", action="store_true", help="tiny CPU test models")
     p.add_argument("--offline", action="store_true", help="HF_HUB_OFFLINE=1")
     p.add_argument("--keep-section-videos", action="store_true")
+    p.add_argument(
+        "--setting",
+        action="append",
+        metavar="KEY=VALUE",
+        help="app setting for this run only, repeatable (e.g. quantization_format=float8_storage)",
+    )
     return p
 
 
@@ -586,11 +678,30 @@ def main(argv=None):
             "offline",
             "keep_section_videos",
             "cache",
+            "setting",
         )
     }
+    if args.lora:
+        overrides["loras"] = {
+            name: float(weight or 1.0)
+            for name, _, weight in (spec.partition(":") for spec in args.lora)
+        }
+        del overrides["lora"]
     if args.cache:
         overrides["use_magcache"] = args.cache == "MagCache"
         overrides["use_teacache"] = args.cache == "TeaCache"
+
+    if args.setting:
+        from modules.settings import Settings
+
+        values = {}
+        for spec in args.setting:
+            key, _, raw = spec.partition("=")
+            try:
+                values[key] = json.loads(raw)
+            except ValueError:
+                values[key] = raw
+        _override_settings(Settings(), **values)
 
     load_models(fake=args.fake, offline=args.offline)
     results = []
