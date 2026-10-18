@@ -195,3 +195,7 @@ cython_debug/
 .pypirc
 
 temp/
+
+# Local plans, notes and research material
+plans/
+notes/

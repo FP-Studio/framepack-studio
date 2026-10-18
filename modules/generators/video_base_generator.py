@@ -10,12 +10,10 @@ import pathlib
 from diffusers_helper.models.hunyuan_video_packed import (
     HunyuanVideoTransformer3DModelPacked,
 )
-from diffusers_helper.memory import DynamicSwapInstaller
 from diffusers_helper.utils import resize_and_center_crop
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from diffusers_helper.hunyuan import vae_encode
 from .base_generator import BaseModelGenerator
-from modules import vram_mode
 from shared import QuantizationFormat, timer
 
 logger = logging.getLogger(__name__)
@@ -92,12 +90,7 @@ class VideoBaseModelGenerator(BaseModelGenerator):
         self.transformer.requires_grad_(False)
         self.apply_weight_storage()
 
-        # Set up dynamic swap if not in high VRAM mode
-        if not self.high_vram and not vram_mode.transformer_stays_on_gpu():
-            DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
-        else:
-            # In high VRAM mode, move the entire model to GPU
-            self.transformer.to(device=self.gpu)
+        self.place_transformer()
 
         logger.info(f"{self.model_name} Transformer Loaded from {path_to_load}.")
         return self.transformer

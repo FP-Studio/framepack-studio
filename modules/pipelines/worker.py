@@ -382,6 +382,11 @@ def worker(
             unload_complete_models(text_encoder, text_encoder_2, image_encoder, vae)
             if (
                 studio_module.current_generator is not None
+                and studio_module.current_generator.block_streamer is not None
+            ):
+                studio_module.current_generator.block_streamer.release()
+            elif (
+                studio_module.current_generator is not None
                 and studio_module.current_generator.transformer is not None
                 and not vram_mode.transformer_stays_on_gpu()
             ):
@@ -430,8 +435,12 @@ def worker(
 
         if new_generator is not None:
             old = studio_module.current_generator
-            if vram_mode.transformer_stays_on_gpu() and old is not None:
-                # Free the resident transformer before loading the next one
+            if old is not None:
+                # Free the old transformer before loading the next one. With
+                # streaming its weights are a full copy in system RAM, and
+                # keeping it through the next load and LoRA merge runs the
+                # box out of memory.
+                old.release_transformer()
                 old.transformer = None
                 del old
                 import gc
@@ -1625,16 +1634,20 @@ def worker(
                         ),
                     )
                 )
+                streamer = studio_module.current_generator.block_streamer
                 if vram_mode.transformer_stays_on_gpu():
                     # Already there, unless an error moved it off
                     studio_module.current_generator.transformer.to(gpu)
+                elif streamer is not None:
+                    # LoRA adapters are part of the blocks it moves
+                    streamer.prepare(reserve_gb=settings.get("gpu_memory_preservation"))
                 else:
                     move_model_to_device_with_memory_preservation(
                         studio_module.current_generator.transformer,
                         target_device=gpu,
                         preserved_memory_gb=settings.get("gpu_memory_preservation"),
                     )
-                if selected_loras:
+                if selected_loras and streamer is None:
                     studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
@@ -1746,7 +1759,9 @@ def worker(
             section_frames.append(int(generated_latents.shape[2]))
 
             if not high_vram:
-                if not vram_mode.transformer_stays_on_gpu():
+                if studio_module.current_generator.block_streamer is not None:
+                    studio_module.current_generator.block_streamer.release()
+                elif not vram_mode.transformer_stays_on_gpu():
                     if selected_loras:
                         studio_module.current_generator.move_lora_adapters_to_device(
                             cpu
@@ -1860,6 +1875,11 @@ def worker(
         )
         if not high_vram:
             # Ensure all models including the potentially active transformer are unloaded on error
+            if (
+                studio_module.current_generator is not None
+                and studio_module.current_generator.block_streamer is not None
+            ):
+                studio_module.current_generator.block_streamer.release()
             unload_complete_models(
                 text_encoder,
                 text_encoder_2,

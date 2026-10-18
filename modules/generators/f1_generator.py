@@ -3,9 +3,7 @@ import torch
 from diffusers_helper.models.hunyuan_video_packed import (
     HunyuanVideoTransformer3DModelPacked,
 )
-from diffusers_helper.memory import DynamicSwapInstaller
 from .base_generator import BaseModelGenerator
-from modules import vram_mode
 from shared import QuantizationFormat, timer
 
 logger = logging.getLogger(__name__)
@@ -65,12 +63,7 @@ class F1ModelGenerator(BaseModelGenerator):
         self.transformer.requires_grad_(False)
         self.apply_weight_storage()
 
-        # Set up dynamic swap if not in high VRAM mode
-        if not self.high_vram and not vram_mode.transformer_stays_on_gpu():
-            DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
-        else:
-            # In high VRAM mode, move the entire model to GPU
-            self.transformer.to(device=self.gpu)
+        self.place_transformer()
 
         logger.info(f"{self.model_name} Transformer Loaded from {path_to_load}.")
         return self.transformer

@@ -51,6 +51,7 @@ Enhanced prompt:""",
             "reuse_model_instance": False,  # Reuse model instance across generations - default of False is existing behavior
             "quantization_format": QuantizationFormat.DEFAULT,  # Default quantization format
             "vram_mode": "auto",  # auto, high, medium or low; see modules/vram_mode.py
+            "offload_engine": "legacy",  # low VRAM mode: legacy or streamed; see diffusers_helper/streaming.py
         }
         self.settings = self.load_settings()
 

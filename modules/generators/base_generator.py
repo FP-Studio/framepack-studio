@@ -9,6 +9,8 @@ from pathlib import Path
 from transformers import BitsAndBytesConfig
 
 from diffusers_helper.lora_utils_kohya_ss.enums import LoraLoader
+from diffusers_helper.memory import DynamicSwapInstaller
+from diffusers_helper.streaming import BlockStreamer
 from diffusers_helper.models.hunyuan_video_packed import (
     HunyuanVideoTransformer3DModelPacked,
 )
@@ -78,6 +80,8 @@ class BaseModelGenerator(ABC):
         self.settings: Settings = settings if settings is not None else Settings()
         self.offline = offline
         self.transformer = None
+        # Set by place_transformer in low VRAM mode with offload_engine "streamed"
+        self.block_streamer: BlockStreamer | None = None
         self.gpu = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.cpu = torch.device("cpu")
 
@@ -88,7 +92,8 @@ class BaseModelGenerator(ABC):
         )
         if (
             vram_mode.transformer_stays_on_gpu()
-            and self.quantization_format == QuantizationFormat.brain_floating_point_16bit
+            and self.quantization_format
+            == QuantizationFormat.brain_floating_point_16bit
         ):
             # bf16 (26 GB) can't stay on the GPU; fp8 storage (13 GB) can
             self.quantization_format = QuantizationFormat.float8_storage
@@ -125,6 +130,38 @@ class BaseModelGenerator(ABC):
             storage_dtype=torch.float8_e4m3fn, compute_dtype=torch.bfloat16
         )
         logger.info(f"{self.model_name} Transformer weights stored in fp8.")
+
+    def place_transformer(self):
+        """
+        High VRAM and medium modes keep the whole transformer on the GPU.
+        Low mode streams it from system RAM: block by block with
+        offload_engine "streamed", otherwise weight by weight as it is used.
+        """
+        # A second load_model on this generator would hook the blocks twice
+        self.release_transformer()
+        if self.high_vram or vram_mode.transformer_stays_on_gpu():
+            self.transformer.to(device=self.gpu)
+            return
+        if self.settings.get("offload_engine", "legacy") == "streamed":
+            if self.quantization_format in (
+                QuantizationFormat.brain_floating_point_16bit,
+                QuantizationFormat.float8_storage,
+            ):
+                self.block_streamer = BlockStreamer(self.transformer, self.gpu)
+                return
+            # bitsandbytes weights carry state outside .data and can't be
+            # moved as plain tensors
+            logger.warning(
+                f"Block streaming needs bf16 or float8_storage weights, not "
+                f"{self.quantization_format}; using the legacy offload."
+            )
+        DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
+
+    def release_transformer(self):
+        """Stop streaming and unpin before this generator is dropped."""
+        if self.block_streamer is not None:
+            self.block_streamer.close()
+            self.block_streamer = None
 
     @abstractmethod
     def load_model(self) -> HunyuanVideoTransformer3DModelPacked:

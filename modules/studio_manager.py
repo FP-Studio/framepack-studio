@@ -196,6 +196,9 @@ class StudioManager:
         Delete the current model generator instance.
         This will set the current generator to None.
         """
+        if self.__current_generator is not None:
+            # Unpin its streamed blocks now rather than whenever GC runs
+            self.__current_generator.release_transformer()
         self.__current_generator = None  # Reset the current generator
         self.model_state = ModelState()  # Reset the model state
 

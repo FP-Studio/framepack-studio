@@ -150,6 +150,14 @@ def create_settings_ui(settings):
                         "20 GB free) and is much faster than low. Auto picks from "
                         "the free VRAM.",
                     )
+                    offload_engine = gr.Dropdown(
+                        label="Low VRAM offload (applies when the model next loads)",
+                        choices=["legacy", "streamed"],
+                        value=settings.get("offload_engine", "legacy"),
+                        info="How low mode moves the model in from system RAM. "
+                        "Streamed copies whole blocks ahead of time from pinned "
+                        "memory; it needs bf16 or float8_storage.",
+                    )
                     lora_loader = gr.Dropdown(
                         label="LoRA loader",
                         choices=[loader.value for loader in LoraLoader],
@@ -186,6 +194,7 @@ def create_settings_ui(settings):
         "reuse_model_instance": reuse_model_instance,
         "quantization_format": quantization_format,
         "vram_mode": vram_mode_setting,
+        "offload_engine": offload_engine,
         "lora_loader": lora_loader,
         "override_system_prompt": override_system_prompt,
         "system_prompt_template": system_prompt_template,
