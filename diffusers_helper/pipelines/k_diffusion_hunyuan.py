@@ -52,6 +52,8 @@ def sample_hunyuan(
     negative_kwargs=None,
     callback=None,
     noise=None,
+    guide_latents=None,
+    guide_steps=0,
     **kwargs,
 ):
     device = device or transformer.device
@@ -133,6 +135,21 @@ def sample_hunyuan(
     if hasattr(transformer, "begin_sampling"):
         # Step caches must know where in the schedule this section starts
         transformer.begin_sampling(first_step, len(sigmas) - 1)
+
+    if guide_latents is not None and guide_steps > 0:
+        # Hold the first frames on a target for the first guide_steps steps: after
+        # each of them they are reset to the target noised to the next step's sigma
+        # (with their own starting noise), then left free for the rest
+        k = guide_latents.shape[2]
+        target = guide_latents.to(latents)
+        start_noise = latents[:, :, :k].clone()
+        outer = callback
+
+        def callback(d):
+            if d["i"] < guide_steps:
+                sigma = sigmas[d["i"] + 1].to(target)
+                d["x"][:, :, :k] = target * (1.0 - sigma) + start_noise * sigma
+            return outer(d) if outer is not None else None
 
     if sampler == "unipc":
         results = sample_unipc(

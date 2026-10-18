@@ -96,6 +96,21 @@ DEFAULTS = {
     # to regenerate from; earlier sections are kept as they were.
     "reroll_latents_path": None,
     "reroll_from_section": None,
+    # Start anchor (modules/pipelines/start_anchor.py): loosen the start image's pull
+    "start_attention": None,
+    "start_attention_all_sections": False,
+    "start_gap": 0.0,
+    "start_shift": 0.0,
+    # Colour lock (modules/pipelines/section_color.py), 0 = off
+    "color_lock": 0.0,
+    # How much packed history each section sees: full, no4x, no2x or 1x
+    "history_context": "full",
+    # Sigma of noise mixed into the packed history (start frame stays clean)
+    "history_noise": 0.0,
+    "history_noise_ramp": False,
+    # F1: latent frames each section re-generates and cross-fades into the last
+    "section_overlap": 0,
+    "overlap_guide": 0.0,
     "keyframe_images": None,
     "keyframe_times": None,
     "motion_reference_video": None,

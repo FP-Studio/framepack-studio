@@ -32,6 +32,8 @@ from modules.pipelines.video_tools import combine_videos_sequentially_from_tenso
 from modules.pipelines import keyframes, section_checkpoint
 from modules.pipelines import motion_reference
 from modules.pipelines import flow_noise
+from modules.pipelines import start_anchor
+from modules.pipelines import section_color
 from modules import DUMMY_LORA_NAME  # Import the constant
 from modules.llm_captioner import unload_captioning_model
 from modules.llm_enhancer import unload_enhancing_model
@@ -144,6 +146,16 @@ def worker(
     flow_noise_camera="None",  # Camera move preset, see flow_noise.CAMERA_MOVES
     flow_noise_camera_amount=0.3,  # Fraction of the frame the camera travels
     flow_noise_strength=0.7,  # How much of each frame's noise follows the motion
+    start_attention=None,  # Weight on attention to the start image in the time-0 section (None: off)
+    start_attention_all_sections=False,  # Apply start_attention to every section, not just time 0
+    start_gap=0.0,  # Latent frames to move the start frame back while the time-0 section renders
+    start_shift=0.0,  # Latent frames to move the start frame back in every section
+    color_lock=0.0,  # 0..1: pull each new section's colour statistics toward the start frame's
+    history_context="full",  # full, no4x (drop the 16 far frames), no2x (drop the 2 mid frames) or 1x (nearest only)
+    history_noise=0.0,  # sigma of noise mixed into the packed history (not the start frame)
+    history_noise_ramp=False,  # "near" (or True): nearest frames at sigma, 2x half, 4x clean; "far": the reverse
+    section_overlap=0,  # F1: latent frames each section re-generates and cross-fades into the last
+    overlap_guide=0.0,  # fraction of the steps the re-generated frames are held on the old ones (1: all, old kept)
 ):
     """
     Worker function for video generation.
@@ -343,6 +355,16 @@ def worker(
             "motion_reference_start": motion_reference_start,
             "flow_noise_arrows": flow_noise_arrows,
             "flow_noise_camera": flow_noise_camera,
+            "start_attention": start_attention,
+            "start_attention_all_sections": start_attention_all_sections,
+            "start_gap": start_gap,
+            "start_shift": start_shift,
+            "color_lock": color_lock,
+            "history_context": history_context,
+            "history_noise": history_noise,
+            "history_noise_ramp": history_noise_ramp,
+            "section_overlap": section_overlap,
+            "overlap_guide": overlap_guide,
             "flow_noise_camera_amount": flow_noise_camera_amount,
             "flow_noise_strength": flow_noise_strength,
         }
@@ -1294,6 +1316,7 @@ def worker(
                 anchor_latent = start_latent
                 anchor_clip_embedding = image_encoder_last_hidden_state
             latent_padding_size = latent_padding * latent_window_size
+            section_overlap_now = 0  # set below for F1 sections with an overlap
 
             if stream_to_use.input_queue.top() == "end":
                 save_checkpoint()
@@ -1514,6 +1537,17 @@ def worker(
                     num_cleaned_frames,
                 )
             else:
+                # SECTION OVERLAP (F1): hold back the last k history frames and
+                # generate them again with the new section, to cross-fade below
+                section_overlap_now = (
+                    int(section_overlap)
+                    if model_type == "F1"
+                    and section_overlap
+                    and motion_reference_video is None
+                    and motion_noise is None
+                    and total_generated_latent_frames > int(section_overlap)
+                    else 0
+                )
                 # Prepare indices using the generator
                 (
                     clean_latent_indices,
@@ -1521,15 +1555,57 @@ def worker(
                     clean_latent_2x_indices,
                     clean_latent_4x_indices,
                 ) = studio_module.current_generator.prepare_indices(
-                    latent_padding_size, latent_window_size
+                    latent_padding_size, latent_window_size + section_overlap_now
                 )
 
                 # Prepare clean latents using the generator
                 clean_latents, clean_latents_2x, clean_latents_4x = (
                     studio_module.current_generator.prepare_clean_latents(
-                        anchor_latent, history_latents
+                        anchor_latent,
+                        history_latents[:, :, : history_latents.shape[2] - section_overlap_now],
                     )
                 )
+
+            # START ANCHOR: loosen the pull of the start image (Original models)
+            if model_type in start_anchor.MODEL_TYPES:
+                clean_latent_indices = start_anchor.shift_start_frame(
+                    clean_latent_indices,
+                    start_shift + (start_gap if is_last_section else 0.0),
+                )
+                start_anchor.set_section_attention(
+                    start_attention
+                    if (is_last_section or start_attention_all_sections)
+                    else None
+                )
+
+            # HISTORY CONTEXT: optionally pack less history (fewer compressed frames)
+            if history_context in ("no4x", "1x"):
+                clean_latents_4x = clean_latent_4x_indices = None
+            if history_context in ("no2x", "1x"):
+                clean_latents_2x = clean_latent_2x_indices = None
+
+            # HISTORY NOISE: flow-matching style mix of noise into the history,
+            # x = (1 - sigma) x + sigma * eps; the start frame stays clean. The ramp
+            # noises the frames nearest the new section most and the oldest not at all
+            if history_noise:
+                noise_gen = torch.Generator("cpu").manual_seed(int(seed) + 7919 * (section_idx + 1))
+
+                def _noised(x, sigma):
+                    eps = torch.randn(x.shape, generator=noise_gen).to(x)
+                    return (1 - sigma) * x + sigma * eps
+
+                ramp = {True: "near", False: None}.get(history_noise_ramp, history_noise_ramp)
+                sigma_1x, sigma_2x, sigma_4x = {
+                    "near": (history_noise, history_noise / 2, 0.0),
+                    "far": (0.0, history_noise / 2, history_noise),
+                }.get(ramp, (history_noise,) * 3)
+                clean_latents = torch.cat(
+                    [clean_latents[:, :, :1], _noised(clean_latents[:, :, 1:], sigma_1x)], dim=2
+                )
+                if clean_latents_2x is not None:
+                    clean_latents_2x = _noised(clean_latents_2x, sigma_2x)
+                if clean_latents_4x is not None:
+                    clean_latents_4x = _noised(clean_latents_4x, sigma_4x)
 
             # Print debug info
             logger.debug(
@@ -1599,7 +1675,7 @@ def worker(
                 noise=section_noise,
                 width=width,
                 height=height,
-                frames=num_frames,
+                frames=(latent_window_size + section_overlap_now) * 4 - 3,
                 real_guidance_scale=cfg,
                 distilled_guidance_scale=gs,
                 guidance_rescale=rs,
@@ -1622,12 +1698,33 @@ def worker(
                 clean_latents_4x=clean_latents_4x,
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
+                guide_latents=history_latents[:, :, -section_overlap_now:] if section_overlap_now else None,
+                guide_steps=round(steps * float(overlap_guide)) if section_overlap_now else 0,
             )
 
             # RT_BORG: Observe the MagCache skip patterns during dev.
             # RT_BORG: We need to use a real logger soon!
             # if magcache is not None and magcache.is_enabled:
             #     print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
+
+            # SECTION OVERLAP: cross-fade the re-generated frames into the held-back
+            # ones, the new section's weight rising across the overlap. Held for all
+            # the steps they only steer the new frames, and the old ones are kept
+            if section_overlap_now:
+                k = section_overlap_now
+                weight = (
+                    torch.arange(1, k + 1, dtype=torch.float32) / (k + 1)
+                ).view(1, 1, k, 1, 1) * (float(overlap_guide) < 1)
+                tail = history_latents[:, :, -k:]
+                head = generated_latents[:, :, :k].to(tail)
+                history_latents[:, :, -k:] = tail * (1 - weight.to(tail)) + head * weight.to(tail)
+                generated_latents = generated_latents[:, :, k:]
+
+            # COLOUR LOCK: keep the new section's colours near the start frame's
+            if color_lock and has_input_image:
+                generated_latents = section_color.match_start(
+                    generated_latents, start_latent, color_lock
+                )
 
             prepends_anchor = starts_at_keyframe or (
                 model_type in ("Original", "Original with Endframe")
@@ -1774,6 +1871,7 @@ def worker(
             )
     finally:
         # This finally block is associated with the main try block (starts around line 154)
+        start_anchor.set_section_attention(None)
         if settings.get("clean_up_videos"):
             try:
                 video_files = [

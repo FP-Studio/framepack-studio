@@ -143,6 +143,19 @@ def apply_rotary_emb_transposed(x, freqs_cis):
     return out
 
 
+# Start attention: a weight on how much every token attends to the start
+# image (its latent frame and its SigLIP tokens). None leaves attention as is;
+# any number, 1.0 included, adds log(weight) to those keys' attention logits and
+# runs PyTorch's attention, since Sage/Flash take no bias. Set per section by
+# the worker with set_start_attention().
+_START_ATTENTION = {"weight": None, "bias": None}
+
+
+def set_start_attention(weight):
+    _START_ATTENTION["weight"] = None if weight is None else float(weight)
+    _START_ATTENTION["bias"] = None
+
+
 def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seqlen_kv):
     if (
         cu_seqlens_q is None
@@ -150,6 +163,13 @@ def attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_seqlen_q, max_seq
         and max_seqlen_q is None
         and max_seqlen_kv is None
     ):
+        bias = _START_ATTENTION["bias"]
+        if bias is not None and bias.shape[-1] == k.shape[1]:
+            return torch.nn.functional.scaled_dot_product_attention(
+                q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2),
+                attn_mask=bias.to(q.dtype),
+            ).transpose(1, 2)
+
         if sageattn is not None:
             x = sageattn(q, k, v, tensor_layout="NHD")
             return x
@@ -1079,6 +1099,12 @@ class HunyuanVideoTransformer3DModelPacked(
 
             hidden_states = torch.cat([clean_latents, hidden_states], dim=1)
             rope_freqs = torch.cat([clean_latent_rope_freqs, rope_freqs], dim=1)
+            # The start frame is clean_latents' first frame: H * W tokens at the
+            # front of this block (the 2x/4x context is prepended below).
+            start_tokens = H * W
+        else:
+            start_tokens = 0
+        tokens_before_clean = hidden_states.shape[1]
 
         if clean_latents_2x is not None and clean_latent_2x_indices is not None:
             clean_latents_2x = clean_latents_2x.to(hidden_states)
@@ -1134,7 +1160,33 @@ class HunyuanVideoTransformer3DModelPacked(
             hidden_states = torch.cat([clean_latents_4x, hidden_states], dim=1)
             rope_freqs = torch.cat([clean_latent_4x_rope_freqs, rope_freqs], dim=1)
 
+        self._start_frame_span = (
+            hidden_states.shape[1] - tokens_before_clean,
+            start_tokens,
+        )
+
         return hidden_states, rope_freqs
+
+    def _start_attention_bias(self, hidden_states, encoder_hidden_states, image_tokens):
+        """
+        Per-key logit bias, shape (1, 1, 1, keys): log(weight) on the start
+        frame's latent tokens and the start image's SigLIP tokens, 0 elsewhere.
+        Keys are [packed video tokens, image tokens, text tokens].
+        """
+        weight = _START_ATTENTION["weight"]
+        if weight is None:
+            return None
+        start, count = getattr(self, "_start_frame_span", (0, 0))
+        video_len = hidden_states.shape[1]
+        bias = torch.zeros(
+            video_len + encoder_hidden_states.shape[1],
+            device=hidden_states.device,
+            dtype=torch.float32,
+        )
+        log_weight = float(np.log(max(weight, 1e-6)))
+        bias[start : start + count] = log_weight
+        bias[video_len : video_len + image_tokens] = log_weight
+        return bias.view(1, 1, 1, -1)
 
     def forward(
         self,
@@ -1206,6 +1258,9 @@ class HunyuanVideoTransformer3DModelPacked(
             encoder_attention_mask = torch.cat(
                 [extra_attention_mask, encoder_attention_mask], dim=1
             )
+            image_tokens = extra_encoder_hidden_states.shape[1]
+        else:
+            image_tokens = 0
 
         with torch.no_grad():
             if batch_size == 1:
@@ -1214,7 +1269,11 @@ class HunyuanVideoTransformer3DModelPacked(
                 text_len = encoder_attention_mask.sum().item()
                 encoder_hidden_states = encoder_hidden_states[:, :text_len]
                 attention_mask = None, None, None, None
+                _START_ATTENTION["bias"] = self._start_attention_bias(
+                    hidden_states, encoder_hidden_states, image_tokens
+                )
             else:
+                _START_ATTENTION["bias"] = None
                 img_seq_len = hidden_states.shape[1]
                 txt_seq_len = encoder_hidden_states.shape[1]
 
