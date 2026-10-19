@@ -10,8 +10,6 @@ It runs on the new section before it joins the history, so later sections
 are generated from corrected frames.
 """
 
-import torch
-
 
 def match_start(section, start_latent, strength):
     """Move section's per-channel mean/std (B, C, T, H, W) toward start_latent's."""

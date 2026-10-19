@@ -1571,7 +1571,9 @@ def worker(
                 clean_latents, clean_latents_2x, clean_latents_4x = (
                     studio_module.current_generator.prepare_clean_latents(
                         anchor_latent,
-                        history_latents[:, :, : history_latents.shape[2] - section_overlap_now],
+                        history_latents[
+                            :, :, : history_latents.shape[2] - section_overlap_now
+                        ],
                     )
                 )
 
@@ -1597,19 +1599,27 @@ def worker(
             # x = (1 - sigma) x + sigma * eps; the start frame stays clean. The ramp
             # noises the frames nearest the new section most and the oldest not at all
             if history_noise:
-                noise_gen = torch.Generator("cpu").manual_seed(int(seed) + 7919 * (section_idx + 1))
+                noise_gen = torch.Generator("cpu").manual_seed(
+                    int(seed) + 7919 * (section_idx + 1)
+                )
 
                 def _noised(x, sigma):
                     eps = torch.randn(x.shape, generator=noise_gen).to(x)
                     return (1 - sigma) * x + sigma * eps
 
-                ramp = {True: "near", False: None}.get(history_noise_ramp, history_noise_ramp)
+                ramp = {True: "near", False: None}.get(
+                    history_noise_ramp, history_noise_ramp
+                )
                 sigma_1x, sigma_2x, sigma_4x = {
                     "near": (history_noise, history_noise / 2, 0.0),
                     "far": (0.0, history_noise / 2, history_noise),
                 }.get(ramp, (history_noise,) * 3)
                 clean_latents = torch.cat(
-                    [clean_latents[:, :, :1], _noised(clean_latents[:, :, 1:], sigma_1x)], dim=2
+                    [
+                        clean_latents[:, :, :1],
+                        _noised(clean_latents[:, :, 1:], sigma_1x),
+                    ],
+                    dim=2,
                 )
                 if clean_latents_2x is not None:
                     clean_latents_2x = _noised(clean_latents_2x, sigma_2x)
@@ -1711,8 +1721,12 @@ def worker(
                 clean_latents_4x=clean_latents_4x,
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
-                guide_latents=history_latents[:, :, -section_overlap_now:] if section_overlap_now else None,
-                guide_steps=round(steps * float(overlap_guide)) if section_overlap_now else 0,
+                guide_latents=history_latents[:, :, -section_overlap_now:]
+                if section_overlap_now
+                else None,
+                guide_steps=round(steps * float(overlap_guide))
+                if section_overlap_now
+                else 0,
             )
 
             # RT_BORG: Observe the MagCache skip patterns during dev.
@@ -1725,12 +1739,14 @@ def worker(
             # the steps they only steer the new frames, and the old ones are kept
             if section_overlap_now:
                 k = section_overlap_now
-                weight = (
-                    torch.arange(1, k + 1, dtype=torch.float32) / (k + 1)
-                ).view(1, 1, k, 1, 1) * (float(overlap_guide) < 1)
+                weight = (torch.arange(1, k + 1, dtype=torch.float32) / (k + 1)).view(
+                    1, 1, k, 1, 1
+                ) * (float(overlap_guide) < 1)
                 tail = history_latents[:, :, -k:]
                 head = generated_latents[:, :, :k].to(tail)
-                history_latents[:, :, -k:] = tail * (1 - weight.to(tail)) + head * weight.to(tail)
+                history_latents[:, :, -k:] = tail * (
+                    1 - weight.to(tail)
+                ) + head * weight.to(tail)
                 generated_latents = generated_latents[:, :, k:]
 
             # COLOUR LOCK: keep the new section's colours near the start frame's

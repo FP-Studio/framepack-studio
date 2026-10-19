@@ -49,7 +49,12 @@ def render(image, out, **options):
     from modules.pipelines import section_checkpoint
 
     result = rj.run_job(
-        output_dir=str(out), fake=True, verbose=False, input_image=image, **TINY, **options
+        output_dir=str(out),
+        fake=True,
+        verbose=False,
+        input_image=image,
+        **TINY,
+        **options,
     )
     return section_checkpoint.load_section_checkpoint(
         section_checkpoint.checkpoint_path(str(out), result["job_id"])
@@ -67,7 +72,10 @@ def section_calls(monkeypatch):
 
     def sample(**kwargs):
         calls.append(
-            (kwargs["clean_latent_indices"][0, 0].item(), hvp._START_ATTENTION["weight"])
+            (
+                kwargs["clean_latent_indices"][0, 0].item(),
+                hvp._START_ATTENTION["weight"],
+            )
         )
         return real(**kwargs)
 
@@ -93,7 +101,11 @@ def test_shift_start_frame_moves_only_the_start_index():
         (dict(start_shift=2.0), [-2.0] * 5, [None] * 5),
         (dict(start_shift=1.0, start_gap=2.0), [-1.0] * 4 + [-3.0], [None] * 5),
         (dict(start_attention=0.4), [0] * 5, [None] * 4 + [0.4]),
-        (dict(start_attention=0.4, start_attention_all_sections=True), [0] * 5, [0.4] * 5),
+        (
+            dict(start_attention=0.4, start_attention_all_sections=True),
+            [0] * 5,
+            [0.4] * 5,
+        ),
     ],
 )
 def test_each_section_gets_its_start_index_and_weight(
@@ -119,13 +131,15 @@ def test_attention_bias_reweights_the_start_keys():
     scale = torch.tensor([1.0, 1.0, 0.5, 0.5, 1.0, 1.0])  # keys 2-3 at half weight
     try:
         hvp._START_ATTENTION["bias"] = torch.zeros(1, 1, 1, 6)
-        assert torch.allclose(hvp.attn_varlen_func(q, k, v, None, None, None, None), plain, atol=1e-6)
+        assert torch.allclose(
+            hvp.attn_varlen_func(q, k, v, None, None, None, None), plain, atol=1e-6
+        )
         hvp._START_ATTENTION["bias"] = scale.log().view(1, 1, 1, 6)
         out = hvp.attn_varlen_func(q, k, v, None, None, None, None)
     finally:
         hvp._START_ATTENTION["bias"] = None
     # By hand: softmax with keys 2-3 scaled by 0.5
-    logits = torch.einsum("bqhd,bkhd->bhqk", q, k) / 8 ** 0.5
+    logits = torch.einsum("bqhd,bkhd->bhqk", q, k) / 8**0.5
     weights = logits.softmax(-1) * scale
     weights = weights / weights.sum(-1, keepdim=True)
     assert torch.allclose(out, torch.einsum("bhqk,bkhd->bqhd", weights, v), atol=1e-5)
@@ -144,7 +158,9 @@ def test_bias_covers_the_start_frame_and_image_tokens(image, tmp_path, monkeypat
             biases.append((bias, start, count, hidden_states.shape[1], image_tokens))
         return bias
 
-    monkeypatch.setattr(hvp.HunyuanVideoTransformer3DModelPacked, "_start_attention_bias", spy)
+    monkeypatch.setattr(
+        hvp.HunyuanVideoTransformer3DModelPacked, "_start_attention_bias", spy
+    )
     render(image, tmp_path, start_attention=0.5)
     assert len(biases) == TINY["steps"]  # time-0 section only
     for bias, start, count, video_len, image_tokens in biases:

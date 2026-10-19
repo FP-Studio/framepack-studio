@@ -472,7 +472,11 @@ def run_job(
     # Remember the app's own output folders before overriding them per job.
     app_dirs = _APP_DIRS.setdefault(
         "dirs",
-        (settings.get("output_dir"), settings.get("metadata_dir"), settings.get("lora_dir")),
+        (
+            settings.get("output_dir"),
+            settings.get("metadata_dir"),
+            settings.get("lora_dir"),
+        ),
     )
     if output_dir is None:
         output_dir, metadata_dir = app_dirs[0], metadata_dir or app_dirs[1]

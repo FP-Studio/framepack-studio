@@ -52,7 +52,9 @@ def test_match_start_moves_channel_stats_toward_the_start():
     assert torch.allclose(stats(full)[0], stats(start)[0], atol=1e-5)
     assert torch.allclose(stats(full)[1], stats(start)[1], atol=1e-4)
     half = section_color.match_start(section, start, 0.5)
-    assert torch.allclose(stats(half)[0], (stats(section)[0] + stats(start)[0]) / 2, atol=1e-5)
+    assert torch.allclose(
+        stats(half)[0], (stats(section)[0] + stats(start)[0]) / 2, atol=1e-5
+    )
     assert half.dtype == section.dtype and half.shape == section.shape
 
 
@@ -70,7 +72,13 @@ def test_f1_job_locks_every_section(tmp_path, monkeypatch, strength):
         return real(section, start_latent, s)
 
     monkeypatch.setattr(section_color, "match_start", spy)
-    rj.run_job(output_dir=str(tmp_path / "out"), fake=True, verbose=False,
-               input_image=image, color_lock=strength, **TINY)
+    rj.run_job(
+        output_dir=str(tmp_path / "out"),
+        fake=True,
+        verbose=False,
+        input_image=image,
+        color_lock=strength,
+        **TINY,
+    )
     # 2 s with a 3-latent window is 5 sections
     assert calls == ([strength] * 5 if strength else [])
