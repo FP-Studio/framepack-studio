@@ -12,6 +12,7 @@ WORKDIR /app
 
 # This allows caching pip install if only code has changed
 COPY requirements.txt .
+COPY modules/MMAudio/requirements.txt modules/MMAudio/
 
 # Install dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
